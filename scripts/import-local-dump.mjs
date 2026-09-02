@@ -1,5 +1,9 @@
 /**
  * Importa data/local-production-seed.sql en la BD conectada.
+ *
+ * Desde tu PC (Public URL):
+ *   $env:TARGET_DATABASE_URL="postgresql://...@HOST.railway.app:PORT/railway"
+ *   node scripts/import-local-dump.mjs
  */
 import fs from 'fs';
 import path from 'path';
@@ -9,6 +13,20 @@ import '../src/config/loadEnv.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DUMP = path.join(__dirname, '../data/local-production-seed.sql');
+
+function parseInsertStatements(sql) {
+  return sql
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('INSERT INTO '));
+}
+
+async function getExistingTables(client) {
+  const { rows } = await client.query(`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  `);
+  return new Set(rows.map((r) => r.tablename));
+}
 
 async function verifyCounts(client) {
   const checks = [
@@ -56,7 +74,6 @@ async function main() {
     process.exit(1);
   }
 
-  const sql = fs.readFileSync(DUMP, 'utf8');
   const client = new pg.Client({
     connectionString: dbUrl,
     ssl: dbUrl.includes('railway') ? { rejectUnauthorized: false } : undefined,
@@ -65,9 +82,42 @@ async function main() {
   await client.connect();
   console.log('📦 Importando seed local → producción...');
 
+  const tables = await getExistingTables(client);
+  const inserts = parseInsertStatements(fs.readFileSync(DUMP, 'utf8'));
+  const tableFromInsert = /^INSERT INTO "([^"]+)"/;
+
   try {
-    await client.query(sql);
+    await client.query('BEGIN');
+    try {
+      await client.query('SET session_replication_role = replica');
+    } catch (err) {
+      console.warn('⚠️ session_replication_role no disponible:', err.message);
+    }
+
+    const truncateList = [...tables].map((t) => `"${t}"`).join(', ');
+    if (truncateList) {
+      await client.query(`TRUNCATE ${truncateList} RESTART IDENTITY CASCADE`);
+    }
+
+    let imported = 0;
+    for (const statement of inserts) {
+      const match = statement.match(tableFromInsert);
+      const table = match?.[1];
+      if (!table || !tables.has(table)) continue;
+      await client.query(statement);
+      imported += 1;
+    }
+
+    try {
+      await client.query('SET session_replication_role = origin');
+    } catch {
+      // ignore
+    }
+
+    await client.query('COMMIT');
+    console.log(`✅ ${imported} inserts aplicados`);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('❌ Error SQL durante import:', err.message);
     process.exit(1);
   }

@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { sequelize } from '../db/db.js';
+import pg from 'pg';
+import sequelize from '../config/database.js';
 
 const DUMP = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -17,8 +18,8 @@ function parseInsertStatements(sql) {
     .filter((line) => line.startsWith('INSERT INTO '));
 }
 
-async function getExistingTables() {
-  const [rows] = await sequelize.query(`
+async function getExistingTables(client) {
+  const { rows } = await client.query(`
     SELECT tablename FROM pg_tables WHERE schemaname = 'public'
   `);
   return new Set(rows.map((r) => r.tablename));
@@ -52,17 +53,40 @@ export async function seedProductionIfEmpty() {
 
   console.log('📦 Producción vacía — importando seed local...');
 
+  const dbUrl =
+    process.env.DATABASE_URL
+    || process.env.DATABASE_PRIVATE_URL
+    || process.env.POSTGRES_URL
+    || null;
+
+  if (!dbUrl) {
+    console.error('❌ Seed falló: no hay DATABASE_URL configurada');
+    return;
+  }
+
+  const client = new pg.Client({
+    connectionString: dbUrl,
+    ssl: dbUrl?.includes('railway') ? { rejectUnauthorized: false } : undefined,
+  });
+
   try {
-    const tables = await getExistingTables();
+    await client.connect();
+
+    const tables = await getExistingTables(client);
     const inserts = parseInsertStatements(fs.readFileSync(DUMP, 'utf8'));
     const tableFromInsert = /^INSERT INTO "([^"]+)"/;
 
-    await sequelize.query('BEGIN');
-    await sequelize.query('SET session_replication_role = replica');
+    await client.query('BEGIN');
+
+    try {
+      await client.query('SET session_replication_role = replica');
+    } catch (err) {
+      console.warn('⚠️ session_replication_role no disponible:', err.message);
+    }
 
     const truncateList = [...tables].map((t) => `"${t}"`).join(', ');
     if (truncateList) {
-      await sequelize.query(`TRUNCATE ${truncateList} RESTART IDENTITY CASCADE`);
+      await client.query(`TRUNCATE ${truncateList} RESTART IDENTITY CASCADE`);
     }
 
     let imported = 0;
@@ -75,24 +99,31 @@ export async function seedProductionIfEmpty() {
         skipped += 1;
         continue;
       }
-      await sequelize.query(statement);
+      await client.query(statement);
       imported += 1;
     }
 
-    await sequelize.query('SET session_replication_role = origin');
-    await sequelize.query('COMMIT');
+    try {
+      await client.query('SET session_replication_role = origin');
+    } catch {
+      // ignore
+    }
 
-    const [users] = await sequelize.query('SELECT COUNT(*)::int AS n FROM "user"');
-    const [sports] = await sequelize.query('SELECT COUNT(*)::int AS n FROM sports');
-    const [torneos] = await sequelize.query('SELECT COUNT(*)::int AS n FROM torneos');
+    await client.query('COMMIT');
+
+    const { rows: users } = await client.query('SELECT COUNT(*)::int AS n FROM "user"');
+    const { rows: sports } = await client.query('SELECT COUNT(*)::int AS n FROM sports');
+    const { rows: torneos } = await client.query('SELECT COUNT(*)::int AS n FROM torneos');
     console.log(`✅ Seed OK — inserts: ${imported}, omitidos: ${skipped}`);
     console.log(`   usuarios: ${users[0].n}, deportes: ${sports[0].n}, torneos: ${torneos[0].n}`);
   } catch (err) {
     try {
-      await sequelize.query('ROLLBACK');
+      await client.query('ROLLBACK');
     } catch {
       // ignore
     }
     console.error('❌ Seed falló (el servidor sigue arrancando):', err.message);
+  } finally {
+    await client.end().catch(() => {});
   }
 }
