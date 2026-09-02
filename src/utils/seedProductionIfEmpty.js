@@ -8,11 +8,9 @@ const DUMP = path.join(
   '../../data/local-production-seed.sql',
 );
 
-export async function seedProductionIfEmpty() {
-  if (process.env.SEED_PRODUCTION_DATA !== 'true') {
-    return;
-  }
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 
+export async function seedProductionIfEmpty() {
   let existing = 0;
   try {
     const [rows] = await sequelize.query('SELECT COUNT(*)::int AS n FROM sports');
@@ -26,12 +24,19 @@ export async function seedProductionIfEmpty() {
     return;
   }
 
-  if (!fs.existsSync(DUMP)) {
-    console.warn('⚠️ SEED_PRODUCTION_DATA=true pero no existe local-production-seed.sql');
+  const explicitSeed = process.env.SEED_PRODUCTION_DATA === 'true';
+  const autoSeedOnRailway = isRailway && fs.existsSync(DUMP);
+
+  if (!explicitSeed && !autoSeedOnRailway) {
     return;
   }
 
-  console.log('📦 Producción vacía — importando seed local (3128 filas)...');
+  if (!fs.existsSync(DUMP)) {
+    console.warn('⚠️ Producción vacía pero no existe local-production-seed.sql');
+    return;
+  }
+
+  console.log('📦 Producción vacía — importando seed local...');
   const sql = fs.readFileSync(DUMP, 'utf8');
   await sequelize.query(sql);
 
