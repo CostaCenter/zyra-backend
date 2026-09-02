@@ -1,7 +1,5 @@
+import './loadEnv.js';
 import { Sequelize } from 'sequelize';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const pool = {
   max: 5,
