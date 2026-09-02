@@ -10,6 +10,20 @@ const DUMP = path.join(
 
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 
+function parseInsertStatements(sql) {
+  return sql
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('INSERT INTO '));
+}
+
+async function getExistingTables() {
+  const [rows] = await sequelize.query(`
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  `);
+  return new Set(rows.map((r) => r.tablename));
+}
+
 export async function seedProductionIfEmpty() {
   let existing = 0;
   try {
@@ -37,11 +51,48 @@ export async function seedProductionIfEmpty() {
   }
 
   console.log('📦 Producción vacía — importando seed local...');
-  const sql = fs.readFileSync(DUMP, 'utf8');
-  await sequelize.query(sql);
 
-  const [users] = await sequelize.query('SELECT COUNT(*)::int AS n FROM "user"');
-  const [sports] = await sequelize.query('SELECT COUNT(*)::int AS n FROM sports');
-  const [torneos] = await sequelize.query('SELECT COUNT(*)::int AS n FROM torneos');
-  console.log(`✅ Seed OK — usuarios: ${users[0].n}, deportes: ${sports[0].n}, torneos: ${torneos[0].n}`);
+  try {
+    const tables = await getExistingTables();
+    const inserts = parseInsertStatements(fs.readFileSync(DUMP, 'utf8'));
+    const tableFromInsert = /^INSERT INTO "([^"]+)"/;
+
+    await sequelize.query('BEGIN');
+    await sequelize.query('SET session_replication_role = replica');
+
+    const truncateList = [...tables].map((t) => `"${t}"`).join(', ');
+    if (truncateList) {
+      await sequelize.query(`TRUNCATE ${truncateList} RESTART IDENTITY CASCADE`);
+    }
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (const statement of inserts) {
+      const match = statement.match(tableFromInsert);
+      const table = match?.[1];
+      if (!table || !tables.has(table)) {
+        skipped += 1;
+        continue;
+      }
+      await sequelize.query(statement);
+      imported += 1;
+    }
+
+    await sequelize.query('SET session_replication_role = origin');
+    await sequelize.query('COMMIT');
+
+    const [users] = await sequelize.query('SELECT COUNT(*)::int AS n FROM "user"');
+    const [sports] = await sequelize.query('SELECT COUNT(*)::int AS n FROM sports');
+    const [torneos] = await sequelize.query('SELECT COUNT(*)::int AS n FROM torneos');
+    console.log(`✅ Seed OK — inserts: ${imported}, omitidos: ${skipped}`);
+    console.log(`   usuarios: ${users[0].n}, deportes: ${sports[0].n}, torneos: ${torneos[0].n}`);
+  } catch (err) {
+    try {
+      await sequelize.query('ROLLBACK');
+    } catch {
+      // ignore
+    }
+    console.error('❌ Seed falló (el servidor sigue arrancando):', err.message);
+  }
 }

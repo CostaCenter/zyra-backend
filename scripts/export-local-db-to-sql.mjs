@@ -1,5 +1,5 @@
 /**
- * Exporta todos los datos locales a SQL (INSERT) para importar en Railway.
+ * Exporta datos locales → SQL, solo tablas que existen en ambos lados.
  * node scripts/export-local-db-to-sql.mjs
  */
 import fsNode from 'fs';
@@ -36,7 +36,7 @@ async function main() {
   `);
 
   const lines = [
-    '-- Zyra local → producción (generado automáticamente)',
+    '-- Zyra local → producción',
     'BEGIN;',
     'SET session_replication_role = replica;',
   ];
@@ -64,7 +64,6 @@ async function main() {
       lines.push(`INSERT INTO "${tablename}" (${colNames}) VALUES (${values});`);
       total += 1;
     }
-    lines.push('');
   }
 
   lines.push('SET session_replication_role = origin;');
@@ -75,7 +74,6 @@ async function main() {
 
   console.log(`✅ Exportado: ${OUT}`);
   console.log(`   ${tables.length} tablas, ${total} filas`);
-
   await local.end();
 }
 
