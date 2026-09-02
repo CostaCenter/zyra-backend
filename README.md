@@ -44,3 +44,4 @@ API backend de Zyra (Node.js, Express, Sequelize, PostgreSQL, Socket.io, Cloudin
 | `npm start` | Servidor en producción |
 | `npm run dev` | Servidor con nodemon |
 | `npm run migrate:all` | Todas las migraciones SQL en orden |
+"# ZyraBackend" 
