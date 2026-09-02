@@ -2,7 +2,7 @@
 builder = "NIXPACKS"
 
 [deploy]
-preDeployCommand = "npm run migrate:all"
+preDeployCommand = "npm run migrate:all && node scripts/run-seed-production.mjs"
 startCommand = "node src/app.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3

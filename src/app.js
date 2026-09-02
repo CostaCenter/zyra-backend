@@ -39,6 +39,24 @@ app.get('/', (req, res) => {
   res.json({ message: 'Zyra Backend API' });
 });
 
+app.get('/health/data', async (req, res) => {
+  try {
+    const [sports] = await sequelize.query('SELECT COUNT(*)::int AS n FROM sports');
+    const [users] = await sequelize.query('SELECT COUNT(*)::int AS n FROM "user"');
+    const [torneos] = await sequelize.query('SELECT COUNT(*)::int AS n FROM torneos');
+    res.json({
+      ok: true,
+      sports: sports[0].n,
+      users: users[0].n,
+      torneos: torneos[0].n,
+      seedFlag: process.env.SEED_PRODUCTION_DATA === 'true',
+      railway: Boolean(process.env.RAILWAY_ENVIRONMENT),
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.use('/auth', authRoutes);
 app.use('/api/complexes', complexRoutes);
 app.use('/api/courts', courtRoutes);
@@ -74,7 +92,7 @@ seedProductionIfEmpty()
     });
   })
   .catch((err) => {
-    console.error('❌ Error al sincronizar la base de datos:', err);
+    console.error('❌ Error al iniciar la base de datos:', err);
     process.exit(1);
   });
 

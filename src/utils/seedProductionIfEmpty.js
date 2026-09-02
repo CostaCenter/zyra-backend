@@ -66,7 +66,9 @@ export async function seedProductionIfEmpty() {
 
   const client = new pg.Client({
     connectionString: dbUrl,
-    ssl: dbUrl?.includes('railway') ? { rejectUnauthorized: false } : undefined,
+    ssl: /railway\.app|rlwy\.net|proxy\.rlwy/i.test(dbUrl)
+      ? { rejectUnauthorized: false }
+      : undefined,
   });
 
   try {
@@ -123,6 +125,8 @@ export async function seedProductionIfEmpty() {
       // ignore
     }
     console.error('❌ Seed falló (el servidor sigue arrancando):', err.message);
+    if (err.detail) console.error('   detail:', err.detail);
+    if (err.hint) console.error('   hint:', err.hint);
   } finally {
     await client.end().catch(() => {});
   }

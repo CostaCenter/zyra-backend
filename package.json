@@ -10,7 +10,8 @@
     "migrate:all": "node scripts/run-all-migrations.mjs",
     "db:export-local": "node scripts/export-local-db-to-sql.mjs",
     "db:copy-to-railway": "node scripts/copy-local-db-to-railway.mjs",
-    "db:import-seed": "node scripts/import-local-dump.mjs"
+    "db:import-seed": "node scripts/import-local-dump.mjs",
+    "db:seed-production": "node scripts/run-seed-production.mjs"
   },
   "keywords": [],
   "author": "",
