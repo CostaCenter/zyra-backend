@@ -2,8 +2,8 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import { sequelize } from './db/db.js';
+import { seedProductionIfEmpty } from './utils/seedProductionIfEmpty.js';
 import { initPartidoSocket } from './socket/partidoSocket.js';
 import authRoutes from './routes/authRoutes.js';
 import complexRoutes from './routes/complexRoutes.js';
@@ -26,8 +26,6 @@ import seguidoresRoutes from './routes/seguidoresRoutes.js';
 import notificacionesRoutes from './routes/notificacionesRoutes.js';
 import dispositivosPushRoutes from './routes/dispositivosPushRoutes.js';
 import buscarRoutes from './routes/buscarRoutes.js';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,7 +64,8 @@ app.use('/api/buscar', buscarRoutes);
 const server = http.createServer(app);
 initPartidoSocket(server);
 
-sequelize.sync({ force: false })
+seedProductionIfEmpty()
+  .then(() => sequelize.sync({ force: false }))
   .then(() => {
     console.log('✅ Base de datos sincronizada y modelos de Zyra cargados');
     server.listen(PORT, () => {
