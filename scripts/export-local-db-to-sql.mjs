@@ -24,9 +24,11 @@ function sqlValue(val) {
   if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
   if (val instanceof Date) return `'${val.toISOString()}'`;
   if (Buffer.isBuffer(val)) return `'\\\\x${val.toString('hex')}'`;
-  if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+  if (typeof val === 'object') {
+    return `'${JSON.stringify(val).replace(/'/g, "''").replace(/\r?\n/g, '\\n')}'`;
+  }
   if (typeof val === 'number') return String(val);
-  return `'${String(val).replace(/'/g, "''")}'`;
+  return `'${String(val).replace(/'/g, "''").replace(/\r?\n/g, '\\n')}'`;
 }
 
 async function main() {
@@ -59,7 +61,32 @@ async function main() {
     const { rows } = await local.query(`SELECT ${colNames} FROM "${tablename}"`);
     if (!rows.length) continue;
 
-    for (const row of rows) {
+    let tableRows = rows;
+
+    if (tablename === 'usuario_complejo') {
+      tableRows = [];
+      for (const row of rows) {
+        const copy = { ...row };
+        if (!copy.correo_invitacion) {
+          if (copy.user_id) {
+            const { rows: users } = await local.query(
+              'SELECT email, telefono FROM "user" WHERE id = $1',
+              [copy.user_id],
+            );
+            const u = users[0];
+            copy.correo_invitacion =
+              u?.email?.toLowerCase()
+              || (u?.telefono ? `${u.telefono}@zyra.local` : null)
+              || `user${copy.user_id}@zyra.local`;
+          } else {
+            copy.correo_invitacion = `invite${copy.id}@zyra.local`;
+          }
+        }
+        tableRows.push(copy);
+      }
+    }
+
+    for (const row of tableRows) {
       const values = cols.map((c) => sqlValue(row[c.column_name])).join(', ');
       lines.push(`INSERT INTO "${tablename}" (${colNames}) VALUES (${values});`);
       total += 1;
