@@ -2,7 +2,8 @@
 builder = "NIXPACKS"
 
 [deploy]
-preDeployCommand = "npm run migrate:all && npm run db:import-seed"
+# TODO post-piloto: quitar SEED_PRODUCTION_DATA=true del preDeploy (reimporta en cada deploy)
+preDeployCommand = "npm run migrate:all && SEED_PRODUCTION_DATA=true node scripts/import-local-dump.mjs"
 startCommand = "node src/app.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3

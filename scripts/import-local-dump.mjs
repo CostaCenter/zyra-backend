@@ -1,12 +1,5 @@
 /**
  * Importa data/local-production-seed.sql en la BD conectada.
- *
- * Railway (internal URL OK):
- *   SEED_PRODUCTION_DATA=true + DATABASE_URL inyectada → preDeploy automático
- *
- * Desde tu PC (Public URL):
- *   $env:TARGET_DATABASE_URL="postgresql://...@HOST.railway.app:PORT/railway"
- *   node scripts/import-local-dump.mjs
  */
 import fs from 'fs';
 import path from 'path';
@@ -17,14 +10,34 @@ import '../src/config/loadEnv.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DUMP = path.join(__dirname, '../data/local-production-seed.sql');
 
+async function verifyCounts(client) {
+  const checks = [
+    ['user', 'usuarios'],
+    ['sports', 'deportes'],
+    ['torneos', 'torneos'],
+    ['publicaciones', 'publicaciones'],
+    ['partidos', 'partidos'],
+  ];
+
+  console.log('\n📊 Verificación post-import:');
+  for (const [table, label] of checks) {
+    try {
+      const { rows } = await client.query(`SELECT COUNT(*)::int AS n FROM "${table}"`);
+      console.log(`   ${label}: ${rows[0].n}`);
+    } catch {
+      console.log(`   ${label}: (tabla no existe)`);
+    }
+  }
+}
+
 async function main() {
   const targetUrl = process.env.TARGET_DATABASE_URL || process.env.DATABASE_PUBLIC_URL;
   const dbUrl = targetUrl || process.env.DATABASE_URL;
   const fromLocal = Boolean(targetUrl);
-  const fromRailway = process.env.SEED_PRODUCTION_DATA === 'true';
+  const shouldImport = fromLocal || process.env.SEED_PRODUCTION_DATA === 'true';
 
-  if (!fromLocal && !fromRailway) {
-    console.log('⏭  Import omitido (SEED_PRODUCTION_DATA≠true y sin TARGET_DATABASE_URL).');
+  if (!shouldImport) {
+    console.log('⏭  Import omitido (SEED_PRODUCTION_DATA≠true).');
     return;
   }
 
@@ -51,8 +64,16 @@ async function main() {
 
   await client.connect();
   console.log('📦 Importando seed local → producción...');
-  await client.query(sql);
-  console.log('✅ Seed importado (~3128 filas).');
+
+  try {
+    await client.query(sql);
+  } catch (err) {
+    console.error('❌ Error SQL durante import:', err.message);
+    process.exit(1);
+  }
+
+  await verifyCounts(client);
+  console.log('\n✅ Seed importado correctamente.');
   await client.end();
 }
 
