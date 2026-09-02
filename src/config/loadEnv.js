@@ -17,6 +17,10 @@ function applyEnvFile(relativePath) {
   }
 }
 
-// Prioridad: variables de Railway dashboard > railway.production.env > .env local
-applyEnvFile('railway.production.env');
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+
+// Local: solo .env (Postgres local). Railway: dashboard vars > railway.production.env
 applyEnvFile('.env');
+if (isRailway) {
+  applyEnvFile('railway.production.env');
+}
