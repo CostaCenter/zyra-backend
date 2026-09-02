@@ -10,9 +10,18 @@ const pool = {
   idle: 10000,
 };
 
+const URL_ENV_KEYS = [
+  'DATABASE_URL',
+  'DATABASE_PRIVATE_URL',
+  'POSTGRES_URL',
+  'POSTGRES_PRIVATE_URL',
+];
+
 function resolveDatabaseUrl() {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+  for (const key of URL_ENV_KEYS) {
+    if (process.env[key]) {
+      return process.env[key];
+    }
   }
 
   const {
@@ -35,14 +44,14 @@ function resolveDatabaseUrl() {
 }
 
 const databaseUrl = resolveDatabaseUrl();
-const isProduction = process.env.NODE_ENV === 'production';
+const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+const isProduction = process.env.NODE_ENV === 'production' || isRailway;
 
 if (!databaseUrl && isProduction) {
-  console.error(
-    '❌ Falta configuración de PostgreSQL en Railway.\n'
-    + '   Agrega DATABASE_URL en el servicio backend (Variables → Reference → Postgres → DATABASE_URL)\n'
-    + '   o define PGHOST, PGPORT, PGUSER, PGPASSWORD y PGDATABASE.',
-  );
+  const dbKeys = Object.keys(process.env).filter((key) => /DATABASE|POSTGRES|^PG/i.test(key));
+  console.error('❌ Falta DATABASE_URL en el servicio BACKEND de Railway (no en Postgres).');
+  console.error(`   Variables DB detectadas en este contenedor: ${dbKeys.length ? dbKeys.join(', ') : '(ninguna)'}`);
+  console.error('   Solución rápida → servicio backend → Variables → Raw Editor → pega railway.env.raw');
   process.exit(1);
 }
 
