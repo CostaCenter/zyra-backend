@@ -7,7 +7,10 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "migrate:all": "node scripts/run-all-migrations.mjs"
+    "migrate:all": "node scripts/run-all-migrations.mjs",
+    "db:export-local": "node scripts/export-local-db-to-sql.mjs",
+    "db:copy-to-railway": "node scripts/copy-local-db-to-railway.mjs",
+    "db:import-seed": "node scripts/import-local-dump.mjs"
   },
   "keywords": [],
   "author": "",
