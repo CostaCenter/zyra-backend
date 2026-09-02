@@ -1,0 +1,62 @@
+{
+  "descripcion": "Configuración de precios simplificada (Precio único por día)",
+  "estrategia": "Mismo precio durante todo el horario de operación de cada día. Fin de semana ligeramente más caro. Festivos con premium moderado.",
+  "precios": [
+    {
+      "tipo_dia": 1,
+      "dia_nombre": "Lunes",
+      "hora_inicio": "08:00",
+      "hora_fin": "22:00",
+      "precio_hora": 70000
+    },
+    {
+      "tipo_dia": 2,
+      "dia_nombre": "Martes",
+      "hora_inicio": "08:00",
+      "hora_fin": "22:00",
+      "precio_hora": 70000
+    },
+    {
+      "tipo_dia": 3,
+      "dia_nombre": "Miércoles",
+      "hora_inicio": "08:00",
+      "hora_fin": "22:00",
+      "precio_hora": 70000
+    },
+    {
+      "tipo_dia": 4,
+      "dia_nombre": "Jueves",
+      "hora_inicio": "08:00",
+      "hora_fin": "22:00",
+      "precio_hora": 70000
+    },
+    {
+      "tipo_dia": 5,
+      "dia_nombre": "Viernes",
+      "hora_inicio": "08:00",
+      "hora_fin": "23:00",
+      "precio_hora": 75000
+    },
+    {
+      "tipo_dia": 6,
+      "dia_nombre": "Sábado",
+      "hora_inicio": "09:00",
+      "hora_fin": "23:00",
+      "precio_hora": 80000
+    },
+    {
+      "tipo_dia": 0,
+      "dia_nombre": "Domingo",
+      "hora_inicio": "10:00",
+      "hora_fin": "20:00",
+      "precio_hora": 75000
+    },
+    {
+      "tipo_dia": 7,
+      "dia_nombre": "Festivo",
+      "hora_inicio": "08:00",
+      "hora_fin": "23:00",
+      "precio_hora": 90000
+    }
+  ]
+}

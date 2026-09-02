@@ -1,0 +1,296 @@
+Table usuarios {
+  id integer [primary key]
+  nombre varchar
+  telefono varchar
+  email varchar
+  creado_at timestamp
+}
+
+Table complejos {
+  id integer [primary key]
+  nombre varchar
+  ubicacion varchar // Jamundí, Cali, etc.
+  dueño_id integer
+  photo text
+  wallpaper text
+}
+
+Table canchas {
+  id integer [primary key]
+  complejo_id integer
+  nombre varchar // "Cancha 1", "Sintética Pro"
+  tipo_deporte varchar // "Voley", "Fútbol"
+  sport_id integer
+  precio_hora decimal
+  state varchar // DISPONIBLE, OCUPADA, MANTENIMIENTO, FUERA DE SERVICIO
+  photo text
+}
+
+Table detailsCanchas {
+  id integer [primary Key]
+  tipoSuperfice varchar
+  tipoDeCancha varchar
+  capacidadMaxima integer
+  techado boolean
+  iluminacion bolean
+  dimensiones varchar
+  ubicacionInterna varchar
+  cancha_id integer
+}
+
+Table WallpaperCanchas {
+  id integer [primary Key]
+  img_url text
+  description text
+  state boolean
+  cancha_id integer
+}
+
+
+// HORARIOS
+Table complejo_horarios {
+  id integer [primary key]
+  complejo_id integer [ref: > complejos.id]
+  dia_semana integer // 0 = Domingo, 1 = Lunes, etc.
+  hora_apertura time
+  hora_cierre time
+  esta_cerrado boolean [default: false] // Para festivos o mantenimientos
+}
+
+
+Table cancha_horarios_precios {
+  id integer [primary key]
+  cancha_id integer [ref: > canchas.id]
+  
+  // 0=Dom, 1=Lun, ..., 6=Sab, 7=FESTIVO (El Híbrido)
+  tipo_dia integer 
+  
+  hora_inicio time   // Ej: 08:00
+  hora_fin time      // Ej: 14:00
+  precio_hora decimal // Ej: 60000
+}
+
+Table calendario_excepciones {
+  id integer [primary key]
+  complejo_id integer [ref: > complejos.id]
+  fecha date [unique]    // Ej: 2026-05-18 (Lunes festivo)
+  
+  esta_abierto boolean [default: true]
+  es_festivo boolean [default: true] // Si es true, el sistema busca "tipo_dia: 7"
+  descripcion varchar    // Ej: "Lunes de Ascensión"
+}
+
+
+Table user {
+  id integer [primary Key]
+  name varchar 
+  nick varchar [unique]
+  photo text 
+
+  // --- NÚCLEO DE AUTH ---
+  email varchar [unique] // Para Google Auth y Login tradicional
+  telefono varchar [unique] // Para Login por teléfono
+  password_hash varchar // Solo se llena si no usa Google
+  google_id varchar [unique] // El ID que te da Google (sub)
+  
+  role varchar // JUGADOR, DUEÑO, ADMIN
+  status varchar [default: 'ACTIVO'] // ACTIVO, BANEADO, POR_VERIFICAR
+  
+  creado_at timestamp
+  last_login timestamp
+}
+
+Table reservas {
+  id integer [primary key]
+  user_id integer 
+  cancha_id integer
+  
+  // --- TIEMPO ---
+  fecha date [not null]                 // Ej: 2026-05-18 (Lunes festivo)
+  hora_inicio time [not null]            // Ej: 19:00:00
+  duracion_minutos integer [default: 60] // Bloques de 60, 90 o 120 min
+  
+  // --- DINERO ---
+  monto_total decimal [not null]        // El precio calculado por el motor híbrido
+  monto_abono decimal [default: 0]      // Lo que pagó para apartar (Nequi/Daviplata)
+  metodo_pago varchar                   // "NEQUI", "EFECTIVO", "PAGOS_APP"
+  
+  // --- ESTADOS (LÓGICA DE NEGOCIO) ---
+  // PENDIENTE, ABONADA, PAGADA_TOTAL, CANCELADA, EXPIRADA
+  estado_pago varchar [default: 'PENDIENTE'] 
+  
+  // SOLICITADA, CONFIRMADA, FINALIZADA, NO_SHOW
+  estado_reserva varchar [default: 'SOLICITADA']
+
+  // --- TRAZABILIDAD ---
+  creado_at timestamp [default: `now()`]
+  updated_at timestamp
+}
+
+
+Table sports {
+  id intenger [primary Key]
+  name varchar // Futbol, voley
+  state varchar // Disponible 
+}
+
+// USUARIO DATOS PERFIL
+Table usuario_stats_por_sport {
+  id integer [primary key]
+  user_id integer
+  sport_id integer
+  // STATS OFICIALES (Torneos/Ligas)
+  elo_oficial decimal [default: 1.0]
+  goles_oficiales integer [default: 0]
+  partidos_oficiales integer [default: 0]
+  
+  // STATS CASUALES (Retos/Amistosos)
+  elo_casual decimal [default: 1.0]
+  goles_casuales integer [default: 0]
+  partidos_casuales integer [default: 0]
+  
+  // DETALLES PROFESIONALES - // ARMADOR, CENTRAL, PUNTA, OPUESTO
+  posicion_principal varchar // "PORTERO", "DEFENSA", "DELANTERO", "LÍBERO"
+  pierna_habil varchar // "DERECHA", "IZQUIERDA", "AMBIDIESTRO"
+
+  // Nota: El "ELO" de Fútbol no afecta al de Voley.
+}
+
+
+
+
+Table partidos {
+  id integer [primary Key]
+  name varchar
+  time number
+  cancha_id integer
+  sport_id integer
+  reserva_id integer
+  tipo varchar // OFICIAL, Deporte
+  state varchar // En cursor, pendiente, finalizado, cancelado, por confirmar marcador, DISPUTA (SI LOS MARCADORES NO COINCIDEN)
+  datetime timestamp // Dia del partido
+  started_by_id integer // ID del usuario (Capitán o Dueño) que inició
+  tipo_inicio varchar // "CAPITAN", "DUEÑO", "SISTEMA"
+
+  score_local_final integer [default: 0]
+  score_visitante_final integer [default: 0]
+} 
+
+Table partido_confirmaciones {
+  id integer [primary key]
+  partido_id integer
+  user_id integer // El capitán que firma
+  team_id integer    // El ID del equipo (para el descuento de puntos)
+  
+  // Identificadores de bando
+  rol_equipo varchar // "LOCAL" o "VISITANTE"
+  
+  // El marcador que ese bando sostiene como real
+  score_local_propuesto integer
+  score_visitante_propuesto integer
+  
+  es_impugnacion boolean [default: false]
+  creado_at timestamp
+}
+
+
+Table Partido_Participantes {
+  id integer [primary key]
+  partido_id integer
+  team_id integer
+  es_local boolean [default: true]
+  color_uniforme varchar
+  pago_completado boolean [default: false]
+}
+
+Table partido_jugador_stats {
+  id integer [primary key]
+  partido_id integer
+  user_id integer
+  team_id integer
+  goles integer [default: 0]
+  asistencias integer [default: 0]
+  amarillas integer [default: 0]
+  rojas integer [default: 0]
+  jugo_minutos integer [default: 60] // Opcional
+}
+
+Table Team {
+  id integer [primary Key]
+  name varchar
+  url text
+  logo_url text
+  ciudad_base integer
+  privado boolean
+  creado_at timestamp
+  sport_id integer
+  capitan_id integer
+}
+
+Table DataTeam {
+  id integer [primary Key]
+  team_id integer
+  elo integer
+  games integer
+  win integer
+  lose integer
+  draw integer
+  total integer
+}
+
+
+
+Table Team_Miembros {
+  id integer [primary key]
+  team_id integer
+  user_id integer
+  position varchar
+  // ROLES DENTRO DEL EQUIPO
+  rol varchar // "CAPITAN", "SUB_CAPITAN", "JUGADOR"
+  
+  // GESTIÓN DE INGRESO (Para el flujo de la App)
+  estado_invitacion varchar // "PENDIENTE", "ACEPTADO", "RECHAZADO"
+  
+  fecha_union timestamp
+}
+
+
+Ref: complejos.dueño_id > user.id
+
+Ref: canchas.complejo_id > complejos.id
+Ref: canchas.sport_id > sports.id
+
+Ref: reservas.user_id > user.id
+Ref: reservas.cancha_id > canchas.id
+Ref: partidos.reserva_id > reservas.id
+
+// Relaciones
+Ref: usuario_stats_por_sport.user_id > user.id
+Ref: usuario_stats_por_sport.sport_id > sports.id
+
+Ref: Team.capitan_id > user.id
+Ref: Team.sport_id > sports.id
+Ref: DataTeam.team_id > Team.id
+
+
+Ref: Partido_Participantes.partido_id > partidos.id
+Ref: Partido_Participantes.team_id > Team.id
+
+Ref: partido_jugador_stats.partido_id > partidos.id
+Ref: partido_jugador_stats.user_id > user.id
+Ref: partido_jugador_stats.team_id > Team.id
+
+
+Ref: partido_confirmaciones.partido_id > partidos.id
+Ref: partido_confirmaciones.user_id > user.id
+Ref: partido_confirmaciones.team_id > Team.id
+Ref: partidos.started_by_id > user.id
+Ref: partidos.sport_id > sports.id
+Ref: partidos.cancha_id > canchas.id
+
+Ref: Team_Miembros.user_id > user.id
+Ref: Team_Miembros.team_id > Team.id
+
+Ref: WallpaperCanchas.cancha_id > canchas.id
+Ref: detailsCanchas.cancha_id > canchas.id
+

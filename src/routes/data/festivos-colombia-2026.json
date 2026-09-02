@@ -1,0 +1,118 @@
+{
+  "excepciones": [
+    {
+      "fecha": "2026-01-01",
+      "esta_abierto": false,
+      "es_festivo": true,
+      "descripcion": "Año Nuevo"
+    },
+    {
+      "fecha": "2026-01-12",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día de los Reyes Magos"
+    },
+    {
+      "fecha": "2026-03-23",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día de San José"
+    },
+    {
+      "fecha": "2026-04-09",
+      "esta_abierto": false,
+      "es_festivo": true,
+      "descripcion": "Jueves Santo"
+    },
+    {
+      "fecha": "2026-04-10",
+      "esta_abierto": false,
+      "es_festivo": true,
+      "descripcion": "Viernes Santo"
+    },
+    {
+      "fecha": "2026-04-12",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Domingo de Pascua"
+    },
+    {
+      "fecha": "2026-05-01",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día del Trabajo"
+    },
+    {
+      "fecha": "2026-05-25",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día de la Ascensión"
+    },
+    {
+      "fecha": "2026-06-15",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Corpus Christi"
+    },
+    {
+      "fecha": "2026-06-22",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Sagrado Corazón de Jesús"
+    },
+    {
+      "fecha": "2026-06-29",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "San Pedro y San Pablo"
+    },
+    {
+      "fecha": "2026-07-20",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día de la Independencia de Colombia"
+    },
+    {
+      "fecha": "2026-08-07",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Batalla de Boyacá"
+    },
+    {
+      "fecha": "2026-08-17",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Asunción de la Virgen"
+    },
+    {
+      "fecha": "2026-10-12",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día de la Raza"
+    },
+    {
+      "fecha": "2026-11-02",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Día de Todos los Santos"
+    },
+    {
+      "fecha": "2026-11-16",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Independencia de Cartagena"
+    },
+    {
+      "fecha": "2026-12-08",
+      "esta_abierto": true,
+      "es_festivo": true,
+      "descripcion": "Inmaculada Concepción"
+    },
+    {
+      "fecha": "2026-12-25",
+      "esta_abierto": false,
+      "es_festivo": true,
+      "descripcion": "Navidad"
+    }
+  ]
+}

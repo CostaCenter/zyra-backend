@@ -1,0 +1,201 @@
+/**
+ * Tests para API de Exploración - Zyra
+ * Ejemplos de pruebas que puedes ejecutar con herramientas como:
+ * - Thunder Client (VS Code Extension)
+ * - Postman
+ * - cURL
+ * - REST Client (VS Code Extension)
+ */
+
+// ===========================================
+// 1. BUSCAR CANCHAS - Ejemplos Básicos
+// ===========================================
+
+### Búsqueda simple por texto
+GET http://localhost:3000/api/explorar/canchas?q=sintetica
+
+### Filtrar por deporte (nombre)
+GET http://localhost:3000/api/explorar/canchas?deporte=futbol
+
+### Filtrar por sport_id (ID del deporte)
+GET http://localhost:3000/api/explorar/canchas?sport_id=1
+
+### Filtrar por ubicación
+GET http://localhost:3000/api/explorar/canchas?ubicacion=Cali
+
+### Filtrar por estado
+GET http://localhost:3000/api/explorar/canchas?estado=DISPONIBLE
+
+### Búsqueda sin filtros (todas las canchas disponibles)
+GET http://localhost:3000/api/explorar/canchas
+
+
+// ===========================================
+// 2. BÚSQUEDAS COMBINADAS
+// ===========================================
+
+### Buscar canchas de fútbol en Cali
+GET http://localhost:3000/api/explorar/canchas?deporte=futbol&ubicacion=Cali
+
+### Buscar "pro" en canchas de voley disponibles
+GET http://localhost:3000/api/explorar/canchas?q=pro&deporte=voley&estado=DISPONIBLE
+
+### Buscar en Jamundí con texto "cancha"
+GET http://localhost:3000/api/explorar/canchas?q=cancha&ubicacion=Jamundí
+
+
+// ===========================================
+// 3. BÚSQUEDA CON PAGINACIÓN
+// ===========================================
+
+### Primera página (10 resultados por defecto)
+GET http://localhost:3000/api/explorar/canchas/paginado?page=1
+
+### Segunda página con 5 resultados
+GET http://localhost:3000/api/explorar/canchas/paginado?page=2&limit=5
+
+### Paginación con filtros
+GET http://localhost:3000/api/explorar/canchas/paginado?deporte=futbol&page=1&limit=10
+
+### Paginación con búsqueda de texto
+GET http://localhost:3000/api/explorar/canchas/paginado?q=central&page=1&limit=20
+
+
+// ===========================================
+// 4. ESTADÍSTICAS
+// ===========================================
+
+### Estadísticas globales
+GET http://localhost:3000/api/explorar/estadisticas
+
+### Estadísticas filtradas por ubicación
+GET http://localhost:3000/api/explorar/estadisticas?ubicacion=Cali
+
+### Estadísticas de un deporte específico
+GET http://localhost:3000/api/explorar/estadisticas?deporte=futbol
+
+
+// ===========================================
+// 5. LISTAR DEPORTES Y UBICACIONES
+// ===========================================
+
+### Listar todos los deportes disponibles
+GET http://localhost:3000/api/explorar/deportes
+
+### Listar todas las ubicaciones
+GET http://localhost:3000/api/explorar/ubicaciones
+
+
+// ===========================================
+// 6. TESTS CON cURL
+// ===========================================
+
+# Búsqueda simple
+curl -X GET "http://localhost:3000/api/explorar/canchas?q=sintetica"
+
+# Búsqueda con múltiples filtros
+curl -X GET "http://localhost:3000/api/explorar/canchas?deporte=futbol&ubicacion=Cali&estado=DISPONIBLE"
+
+# Paginación
+curl -X GET "http://localhost:3000/api/explorar/canchas/paginado?page=1&limit=5"
+
+# Estadísticas
+curl -X GET "http://localhost:3000/api/explorar/estadisticas?ubicacion=Cali"
+
+# Listar deportes
+curl -X GET "http://localhost:3000/api/explorar/deportes"
+
+# Listar ubicaciones
+curl -X GET "http://localhost:3000/api/explorar/ubicaciones"
+
+
+// ===========================================
+// 7. TESTS DE VALIDACIÓN (Errores Esperados)
+// ===========================================
+
+### Fecha con formato incorrecto (debe retornar error 400)
+GET http://localhost:3000/api/explorar/canchas?fecha=2024/01/15
+
+### sport_id no numérico (debe retornar error 400)
+GET http://localhost:3000/api/explorar/canchas?sport_id=abc
+
+### Page menor a 1 (debe retornar error 400)
+GET http://localhost:3000/api/explorar/canchas/paginado?page=0
+
+### Limit mayor a 100 (debe retornar error 400)
+GET http://localhost:3000/api/explorar/canchas/paginado?limit=150
+
+
+// ===========================================
+// 8. TESTS DE BÚSQUEDA CASE-INSENSITIVE
+// ===========================================
+
+### Debe encontrar "Sintética", "sintetica", "SINTETICA"
+GET http://localhost:3000/api/explorar/canchas?q=SINTETICA
+GET http://localhost:3000/api/explorar/canchas?q=sintetica
+GET http://localhost:3000/api/explorar/canchas?q=Sintética
+
+### Debe encontrar "Fútbol", "futbol", "FUTBOL"
+GET http://localhost:3000/api/explorar/canchas?deporte=FUTBOL
+GET http://localhost:3000/api/explorar/canchas?deporte=futbol
+
+
+// ===========================================
+// 9. BÚSQUEDAS PARCIALES
+// ===========================================
+
+### Buscar "sint" debe encontrar "Sintética"
+GET http://localhost:3000/api/explorar/canchas?q=sint
+
+### Buscar "fut" debe encontrar "Fútbol"
+GET http://localhost:3000/api/explorar/canchas?deporte=fut
+
+### Buscar "cal" debe encontrar "Cali"
+GET http://localhost:3000/api/explorar/canchas?ubicacion=cal
+
+
+// ===========================================
+// 10. ESCENARIOS REALES DE USO
+// ===========================================
+
+### Usuario busca "cancha de fútbol cerca"
+GET http://localhost:3000/api/explorar/canchas?q=futbol
+
+### Usuario filtra por deporte en pantalla de exploración
+GET http://localhost:3000/api/explorar/canchas?sport_id=1&page=1&limit=10
+
+### Usuario explora una ciudad específica
+GET http://localhost:3000/api/explorar/canchas?ubicacion=Cali&page=1&limit=20
+
+### Pantalla inicial: mostrar deportes disponibles
+GET http://localhost:3000/api/explorar/deportes
+
+### Pantalla de filtros: mostrar ubicaciones
+GET http://localhost:3000/api/explorar/ubicaciones
+
+### Dashboard de estadísticas
+GET http://localhost:3000/api/explorar/estadisticas
+
+
+// ===========================================
+// NOTAS PARA TESTING
+// ===========================================
+
+/**
+ * ANTES DE PROBAR:
+ * 1. Asegúrate de que el servidor esté corriendo (npm start / npm run dev)
+ * 2. Verifica que la base de datos tenga datos de prueba
+ * 3. Cambia "localhost:3000" por tu URL si es diferente
+ * 
+ * HERRAMIENTAS RECOMENDADAS:
+ * - Thunder Client: Extensión de VS Code (fácil de usar)
+ * - Postman: Cliente HTTP completo
+ * - REST Client: Extensión de VS Code (archivo .http)
+ * - cURL: Línea de comandos
+ * 
+ * DATOS DE PRUEBA RECOMENDADOS:
+ * - Al menos 2 complejos deportivos
+ * - Al menos 5 canchas con diferentes deportes
+ * - Canchas en diferentes ubicaciones (Cali, Jamundí, etc.)
+ * - Al menos 2 deportes diferentes (Fútbol, Voley, etc.)
+ */
