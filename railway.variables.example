@@ -1,0 +1,10 @@
+# Copia estas variables en Railway → tu servicio backend → Variables
+# NO commitees valores reales en git.
+
+DATABASE_URL=postgresql://postgres:PASSWORD@postgres.railway.internal:5432/railway
+NODE_ENV=production
+JWT_SECRET=tu-secreto-jwt-produccion
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+CLOUDINARY_FOLDER=ZyraEnterprise
