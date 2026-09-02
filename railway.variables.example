@@ -1,7 +1,11 @@
-# Copia estas variables en Railway → tu servicio backend → Variables
-# NO commitees valores reales en git.
+# Copia estas variables en Railway → servicio BACKEND (no solo Postgres) → Variables
 
-DATABASE_URL=postgresql://postgres:PASSWORD@postgres.railway.internal:5432/railway
+# Opción A (recomendada): Reference → Postgres → DATABASE_URL
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+
+# Opción B: pegar la URL internal manualmente
+# DATABASE_URL=postgresql://postgres:PASSWORD@postgres.railway.internal:5432/railway
+
 NODE_ENV=production
 JWT_SECRET=tu-secreto-jwt-produccion
 CLOUDINARY_CLOUD_NAME=
