@@ -4,6 +4,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import { sequelize } from './db/db.js';
 import { seedProductionIfEmpty } from './utils/seedProductionIfEmpty.js';
+import { resetPgSequences } from './utils/resetPgSequences.js';
 import { initPartidoSocket } from './socket/partidoSocket.js';
 import authRoutes from './routes/authRoutes.js';
 import complexRoutes from './routes/complexRoutes.js';
@@ -83,6 +84,12 @@ const server = http.createServer(app);
 initPartidoSocket(server);
 
 seedProductionIfEmpty()
+  .then(() => resetPgSequences())
+  .then((count) => {
+    if (count > 0) {
+      console.log(`🔢 Secuencias Postgres sincronizadas (${count} tablas)`);
+    }
+  })
   .then(() => sequelize.sync({ force: false }))
   .then(() => {
     console.log('✅ Base de datos sincronizada y modelos de Zyra cargados');

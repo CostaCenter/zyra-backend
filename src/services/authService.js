@@ -92,13 +92,15 @@ export const registerUser = async (userData) => {
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(password, salt);
 
+  const normalizedRole = role === 'player' ? 'JUGADOR' : (role || 'JUGADOR');
+
   const newUser = await User.create({
     telefono,
     password_hash: hashedPassword,
     nick,
     name,
     photo,
-    role: role || 'JUGADOR',
+    role: normalizedRole,
     status: 'ACTIVO'
   });
 

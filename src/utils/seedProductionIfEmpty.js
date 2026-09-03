@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pg from 'pg';
 import sequelize from '../config/database.js';
+import { resetPgSequences } from './resetPgSequences.js';
 
 const DUMP = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -112,6 +113,8 @@ export async function seedProductionIfEmpty() {
     }
 
     await client.query('COMMIT');
+
+    await resetPgSequences();
 
     const { rows: users } = await client.query('SELECT COUNT(*)::int AS n FROM "user"');
     const { rows: sports } = await client.query('SELECT COUNT(*)::int AS n FROM sports');
