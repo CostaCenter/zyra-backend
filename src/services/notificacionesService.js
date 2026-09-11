@@ -9,6 +9,13 @@ import {
   PartidoParticipantes,
   PublicacionEtiquetas,
   Seguidores,
+  ClubSolicitudes,
+  ClubMembresiaSolicitudes,
+  ClubDivisiones,
+  ClubAnuncios,
+  ClubDivisionInvitaciones,
+  ClubEventos,
+  ContenidoComentarios,
 } from '../db/db.js';
 import {
   categoriaDeTipo,
@@ -17,6 +24,7 @@ import {
 } from '../constants/notificacionCategorias.js';
 import { emitNuevaNotificacion } from '../socket/partidoSocket.js';
 import { enviarPushNotificacionUsuario } from './pushNotificationService.js';
+import { esPracticaInterna } from './partidoAmistosoService.js';
 
 export const TIPOS_NOTIFICACION = {
   INVITACION_EQUIPO: 'INVITACION_EQUIPO',
@@ -34,6 +42,21 @@ export const TIPOS_NOTIFICACION = {
   ETIQUETA_PENDIENTE: 'ETIQUETA_PENDIENTE',
   INSCRIPCION_ACEPTADA: 'INSCRIPCION_ACEPTADA',
   INSCRIPCION_RECHAZADA: 'INSCRIPCION_RECHAZADA',
+  SOLICITUD_CLUB: 'SOLICITUD_CLUB',
+  CLUB_ACEPTADA: 'CLUB_ACEPTADA',
+  CLUB_RECHAZADA: 'CLUB_RECHAZADA',
+  SOLICITUD_MEMBRESIA_CLUB: 'SOLICITUD_MEMBRESIA_CLUB',
+  MEMBRESIA_CLUB_ACEPTADA: 'MEMBRESIA_CLUB_ACEPTADA',
+  MEMBRESIA_CLUB_RECHAZADA: 'MEMBRESIA_CLUB_RECHAZADA',
+  ANUNCIO_CLUB: 'ANUNCIO_CLUB',
+  INVITACION_CLUB_DIVISION: 'INVITACION_CLUB_DIVISION',
+  RESPUESTA_INVITACION_CLUB_DIVISION: 'RESPUESTA_INVITACION_CLUB_DIVISION',
+  CONVOCATORIA_ENTRENAMIENTO: 'CONVOCATORIA_ENTRENAMIENTO',
+  ENTRENAMIENTO_FINALIZADO: 'ENTRENAMIENTO_FINALIZADO',
+  COMENTARIO_AVISO: 'COMENTARIO_AVISO',
+  COMENTARIO_PUBLICACION: 'COMENTARIO_PUBLICACION',
+  REACCION_AVISO: 'REACCION_AVISO',
+  REACCION_PUBLICACION: 'REACCION_PUBLICACION',
 };
 
 const displayName = (user) => user?.nick || user?.name || 'Alguien';
@@ -82,6 +105,7 @@ export async function crearNotificacion({
       referencia_id: referenciaId,
       referencia_tipo: referenciaTipo,
       leida: false,
+      vista_bandeja: false,
     },
     { transaction }
   );
@@ -265,6 +289,10 @@ export async function notificarAlineacionPendienteSet({
 
   if (participantes.length < 2) return [];
 
+  // Fogueo / práctica interna: el entrenador es árbitro y rearma en cancha.
+  // No notificar "configura nómina" como en torneo.
+  if (esPracticaInterna(participantes)) return [];
+
   const setTerminado = setNumero - 1;
   const nombreTorneo = partido.torneo?.nombre || 'el torneo';
   const created = [];
@@ -413,6 +441,354 @@ export async function notificarInscripcionRechazada({
   });
 }
 
+export async function notificarSolicitudClub({
+  solicitudId,
+  club,
+  division,
+  equipo,
+  transaction = null,
+}) {
+  const destinatarios = new Set();
+  if (club?.admin_id) destinatarios.add(club.admin_id);
+  if (division?.encargado_id) destinatarios.add(division.encargado_id);
+
+  const nombreEquipo = equipo?.name || 'Un equipo';
+  const nombreClub = club?.nombre || 'tu club';
+  const sufijoDivision = division?.nombre ? ` (${division.nombre})` : '';
+
+  const results = [];
+  for (const usuarioId of destinatarios) {
+    const row = await crearNotificacion({
+      usuarioId,
+      tipo: TIPOS_NOTIFICACION.SOLICITUD_CLUB,
+      mensaje: `**${nombreEquipo}** solicitó unirse a **${nombreClub}**${sufijoDivision}`,
+      referenciaId: solicitudId,
+      referenciaTipo: 'CLUB_SOLICITUD',
+      transaction,
+    });
+    if (row) results.push(row);
+  }
+  return results;
+}
+
+export async function notificarClubAceptada({
+  solicitudId,
+  club,
+  capitanId,
+  transaction = null,
+}) {
+  if (!capitanId) return null;
+  const nombreClub = club?.nombre || 'el club';
+  return crearNotificacion({
+    usuarioId: capitanId,
+    tipo: TIPOS_NOTIFICACION.CLUB_ACEPTADA,
+    mensaje: `Tu equipo fue aceptado en **${nombreClub}**`,
+    referenciaId: solicitudId,
+    referenciaTipo: 'CLUB_SOLICITUD',
+    transaction,
+  });
+}
+
+export async function notificarClubRechazada({
+  solicitudId,
+  club,
+  capitanId,
+  transaction = null,
+}) {
+  if (!capitanId) return null;
+  const nombreClub = club?.nombre || 'el club';
+  return crearNotificacion({
+    usuarioId: capitanId,
+    tipo: TIPOS_NOTIFICACION.CLUB_RECHAZADA,
+    mensaje: `Tu equipo fue rechazado en **${nombreClub}**`,
+    referenciaId: solicitudId,
+    referenciaTipo: 'CLUB_SOLICITUD',
+    transaction,
+  });
+}
+
+export async function notificarSolicitudMembresiaClub({
+  solicitudId,
+  club,
+  solicitante,
+  transaction = null,
+}) {
+  if (!club?.admin_id) return null;
+  const nombre = displayName(solicitante);
+  const nombreClub = club?.nombre || 'tu club';
+
+  return crearNotificacion({
+    usuarioId: club.admin_id,
+    tipo: TIPOS_NOTIFICACION.SOLICITUD_MEMBRESIA_CLUB,
+    mensaje: `**${nombre}** solicitó unirse a **${nombreClub}** con código`,
+    referenciaId: solicitudId,
+    referenciaTipo: 'CLUB_MEMBRESIA_SOLICITUD',
+    transaction,
+  });
+}
+
+export async function notificarMembresiaClubAceptada({
+  solicitudId,
+  club,
+  usuarioId,
+  rolMembresia,
+  transaction = null,
+}) {
+  if (!usuarioId) return null;
+  const nombreClub = club?.nombre || 'el club';
+  const rol = rolMembresia ? ` como ${String(rolMembresia).toLowerCase().replace(/_/g, ' ')}` : '';
+  return crearNotificacion({
+    usuarioId,
+    tipo: TIPOS_NOTIFICACION.MEMBRESIA_CLUB_ACEPTADA,
+    mensaje: `Te aceptaron en **${nombreClub}**${rol}`,
+    referenciaId: solicitudId,
+    referenciaTipo: 'CLUB_MEMBRESIA_SOLICITUD',
+    transaction,
+  });
+}
+
+export async function notificarMembresiaClubRechazada({
+  solicitudId,
+  club,
+  usuarioId,
+  transaction = null,
+}) {
+  if (!usuarioId) return null;
+  const nombreClub = club?.nombre || 'el club';
+  return crearNotificacion({
+    usuarioId,
+    tipo: TIPOS_NOTIFICACION.MEMBRESIA_CLUB_RECHAZADA,
+    mensaje: `Tu solicitud para unirte a **${nombreClub}** fue rechazada`,
+    referenciaId: solicitudId,
+    referenciaTipo: 'CLUB_MEMBRESIA_SOLICITUD',
+    transaction,
+  });
+}
+
+export async function notificarAnuncioClub({ anuncio, destinatarios = [], transaction = null }) {
+  if (!anuncio?.id || !destinatarios.length) return [];
+
+  const prefix = anuncio.importancia === 'IMPORTANTE' ? '⚠️ ' : '';
+  const mensaje = `${prefix}**${anuncio.titulo}** — nuevo comunicado del club`;
+
+  const results = [];
+  for (const usuarioId of destinatarios) {
+    const row = await crearNotificacion({
+      usuarioId,
+      tipo: TIPOS_NOTIFICACION.ANUNCIO_CLUB,
+      mensaje,
+      referenciaId: anuncio.id,
+      referenciaTipo: 'CLUB_ANUNCIO',
+      transaction,
+    });
+    if (row) results.push(row);
+  }
+  return results;
+}
+
+export async function notificarComentarioPublicacion({
+  publicacionId,
+  autorPublicacionId,
+  comentarista,
+  comentarioId,
+  transaction = null,
+}) {
+  if (!autorPublicacionId || !publicacionId) return null;
+  const nombre = displayName(comentarista);
+  return crearNotificacion({
+    usuarioId: autorPublicacionId,
+    tipo: TIPOS_NOTIFICACION.COMENTARIO_PUBLICACION,
+    mensaje: `**${nombre}** comentó tu publicación`,
+    referenciaId: comentarioId ?? publicacionId,
+    referenciaTipo: 'CONTENIDO_COMENTARIO',
+    transaction,
+  });
+}
+
+export async function notificarComentarioAviso({
+  anuncioId,
+  autorAvisoId,
+  comentarista,
+  comentarioId,
+  transaction = null,
+}) {
+  if (!autorAvisoId || !anuncioId) return null;
+  const nombre = displayName(comentarista);
+  return crearNotificacion({
+    usuarioId: autorAvisoId,
+    tipo: TIPOS_NOTIFICACION.COMENTARIO_AVISO,
+    mensaje: `**${nombre}** comentó tu aviso del club`,
+    referenciaId: comentarioId ?? anuncioId,
+    referenciaTipo: 'CONTENIDO_COMENTARIO',
+    transaction,
+  });
+}
+
+export async function notificarReaccionPublicacion({
+  publicacionId,
+  autorPublicacionId,
+  actor,
+  tipoReaccion,
+  transaction = null,
+}) {
+  if (!autorPublicacionId || !publicacionId) return null;
+  const nombre = displayName(actor);
+  return crearNotificacion({
+    usuarioId: autorPublicacionId,
+    tipo: TIPOS_NOTIFICACION.REACCION_PUBLICACION,
+    mensaje: `**${nombre}** reaccionó a tu publicación`,
+    referenciaId: publicacionId,
+    referenciaTipo: 'PUBLICACION',
+    transaction,
+  });
+}
+
+export async function notificarReaccionAviso({
+  anuncioId,
+  autorAvisoId,
+  actor,
+  tipoReaccion,
+  transaction = null,
+}) {
+  if (!autorAvisoId || !anuncioId) return null;
+  const nombre = displayName(actor);
+  return crearNotificacion({
+    usuarioId: autorAvisoId,
+    tipo: TIPOS_NOTIFICACION.REACCION_AVISO,
+    mensaje: `**${nombre}** reaccionó a tu aviso del club`,
+    referenciaId: anuncioId,
+    referenciaTipo: 'CLUB_ANUNCIO',
+    transaction,
+  });
+}
+
+export async function notificarInvitacionClubDivision({
+  invitacionId,
+  usuarioInvitadoId,
+  invitador,
+  club,
+  division,
+  transaction = null,
+}) {
+  const nombreInvitador = displayName(invitador);
+  const nombreClub = club?.nombre || 'un club';
+  const nombreDivision = division?.nombre || 'una división';
+
+  return crearNotificacion({
+    usuarioId: usuarioInvitadoId,
+    tipo: TIPOS_NOTIFICACION.INVITACION_CLUB_DIVISION,
+    mensaje: `**${nombreInvitador}** te invitó a unirte a **${nombreDivision}** de **${nombreClub}**`,
+    referenciaId: invitacionId,
+    referenciaTipo: 'CLUB_DIVISION_INVITACION',
+    transaction,
+  });
+}
+
+export async function notificarRespuestaInvitacionClubDivision({
+  invitadorId,
+  jugador,
+  division,
+  aceptada,
+  invitacionId,
+  transaction = null,
+}) {
+  if (!invitadorId) return null;
+
+  const nombreJugador = displayName(jugador);
+  const nombreDivision = division?.nombre || 'la división';
+  const verbo = aceptada ? 'aceptó unirse a' : 'rechazó unirse a';
+
+  return crearNotificacion({
+    usuarioId: invitadorId,
+    tipo: TIPOS_NOTIFICACION.RESPUESTA_INVITACION_CLUB_DIVISION,
+    mensaje: `**${nombreJugador}** ${verbo} **${nombreDivision}**`,
+    referenciaId: invitacionId,
+    referenciaTipo: 'CLUB_DIVISION_INVITACION',
+    transaction,
+  });
+}
+
+export async function notificarConvocatoriaEntrenamiento({
+  eventoId,
+  club,
+  division,
+  evento,
+  destinatarioIds = [],
+  transaction = null,
+}) {
+  const nombreClub = club?.nombre || 'tu club';
+  const nombreDivision = division?.nombre || 'tu división';
+  const fecha = evento?.fecha_hora
+    ? new Date(evento.fecha_hora).toLocaleString('es-CO', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : 'próximamente';
+
+  const results = [];
+  for (const usuarioId of destinatarioIds) {
+    const row = await crearNotificacion({
+      usuarioId,
+      tipo: TIPOS_NOTIFICACION.CONVOCATORIA_ENTRENAMIENTO,
+      mensaje: `Entrenamiento en **${nombreDivision}** (${nombreClub}) — ${fecha}. Confirma tu asistencia.`,
+      referenciaId: eventoId,
+      referenciaTipo: 'CLUB_EVENTO',
+      transaction,
+    });
+    if (row) results.push(row);
+  }
+  return results;
+}
+
+export async function notificarEntrenamientoFinalizado({
+  eventoId,
+  clubNombre,
+  divisionNombre,
+  scoreLocal = null,
+  scoreVisitante = null,
+  fogueoFinalizado = false,
+  destinatarios = [],
+  transaction = null,
+}) {
+  if (!eventoId || !Array.isArray(destinatarios) || destinatarios.length === 0) {
+    return [];
+  }
+
+  const nombreClub = clubNombre || 'tu club';
+  const nombreDivision = divisionNombre || 'tu división';
+  const hayMarcador = scoreLocal != null && scoreVisitante != null;
+  const marcadorTxt = hayMarcador
+    ? ` · Fogueo Equipo A ${scoreLocal}–${scoreVisitante} Equipo B`
+    : (fogueoFinalizado ? ' · Fogueo cerrado' : '');
+
+  const results = [];
+  for (const dest of destinatarios) {
+    const usuarioId = dest?.usuarioId ?? dest?.usuario_id ?? dest;
+    if (!usuarioId) continue;
+
+    const promedio = dest?.promedio != null && Number.isFinite(Number(dest.promedio))
+      ? Number(dest.promedio)
+      : null;
+    const califTxt = promedio != null
+      ? ` Tu calificación: **${promedio.toFixed(1)}/10**.`
+      : ' Revisa el detalle del entrenamiento.';
+
+    const row = await crearNotificacion({
+      usuarioId,
+      tipo: TIPOS_NOTIFICACION.ENTRENAMIENTO_FINALIZADO,
+      mensaje: `**Entrenamiento finalizado** · ${nombreDivision} (${nombreClub})${marcadorTxt}.${califTxt}`,
+      referenciaId: eventoId,
+      referenciaTipo: 'CLUB_EVENTO',
+      transaction,
+    });
+    if (row) results.push(row);
+  }
+  return results;
+}
+
 export async function notificarRespuestaInvitacionEquipo({
   capitanId,
   jugador,
@@ -538,6 +914,54 @@ async function resolverNavegacion(notificacion) {
         },
       };
     }
+    case TIPOS_NOTIFICACION.SOLICITUD_CLUB: {
+      const solicitud = await ClubSolicitudes.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_id'],
+      });
+      return {
+        ...base,
+        destino: 'SolicitudClub',
+        params: {
+          clubId: solicitud?.club_id,
+          solicitudId: notificacion.referencia_id,
+        },
+      };
+    }
+    case TIPOS_NOTIFICACION.SOLICITUD_MEMBRESIA_CLUB: {
+      const solicitud = await ClubMembresiaSolicitudes.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_id'],
+      });
+      return {
+        ...base,
+        destino: 'ClubMembresiaSolicitud',
+        params: {
+          clubId: solicitud?.club_id,
+          solicitudId: notificacion.referencia_id,
+        },
+      };
+    }
+    case TIPOS_NOTIFICACION.CLUB_ACEPTADA:
+    case TIPOS_NOTIFICACION.CLUB_RECHAZADA: {
+      const solicitud = await ClubSolicitudes.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_id'],
+      });
+      return {
+        ...base,
+        destino: 'PerfilPublicoClub',
+        params: { clubId: solicitud?.club_id },
+      };
+    }
+    case TIPOS_NOTIFICACION.MEMBRESIA_CLUB_ACEPTADA:
+    case TIPOS_NOTIFICACION.MEMBRESIA_CLUB_RECHAZADA: {
+      const solicitud = await ClubMembresiaSolicitudes.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_id'],
+      });
+      return {
+        ...base,
+        destino: 'PerfilPublicoClub',
+        params: { clubId: solicitud?.club_id },
+      };
+    }
     case TIPOS_NOTIFICACION.ASIGNACION_ARBITRO:
       return {
         ...base,
@@ -565,6 +989,63 @@ async function resolverNavegacion(notificacion) {
         ...base,
         destino: 'TorneoArbitros',
         params: { torneoId: registro?.torneo_id },
+      };
+    }
+    case TIPOS_NOTIFICACION.INVITACION_CLUB_DIVISION: {
+      const invitacion = await ClubDivisionInvitaciones.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_division_id'],
+        include: [{
+          model: ClubDivisiones,
+          as: 'division',
+          attributes: ['id', 'club_id'],
+        }],
+      });
+      return {
+        ...base,
+        destino: 'InvitacionClubDivision',
+        params: {
+          clubId: invitacion?.division?.club_id,
+          divisionId: invitacion?.club_division_id,
+          invitacionId: notificacion.referencia_id,
+        },
+      };
+    }
+    case TIPOS_NOTIFICACION.RESPUESTA_INVITACION_CLUB_DIVISION: {
+      const invitacion = await ClubDivisionInvitaciones.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_division_id'],
+        include: [{
+          model: ClubDivisiones,
+          as: 'division',
+          attributes: ['id', 'club_id'],
+        }],
+      });
+      return {
+        ...base,
+        destino: 'ClubDivisionDetalle',
+        params: {
+          clubId: invitacion?.division?.club_id,
+          divisionId: invitacion?.club_division_id,
+        },
+      };
+    }
+    case TIPOS_NOTIFICACION.CONVOCATORIA_ENTRENAMIENTO:
+    case TIPOS_NOTIFICACION.ENTRENAMIENTO_FINALIZADO: {
+      const evento = await ClubEventos.findByPk(notificacion.referencia_id, {
+        attributes: ['id', 'club_division_id'],
+        include: [{
+          model: ClubDivisiones,
+          as: 'division',
+          attributes: ['id', 'club_id'],
+        }],
+      });
+      return {
+        ...base,
+        destino: 'EntrenamientoClubDetalle',
+        params: {
+          clubId: evento?.division?.club_id,
+          eventoId: notificacion.referencia_id,
+          divisionId: evento?.club_division_id,
+        },
       };
     }
     case TIPOS_NOTIFICACION.RESPUESTA_INVITACION_EQUIPO: {
@@ -662,6 +1143,71 @@ async function resolverNavegacion(notificacion) {
         },
       };
     }
+    case TIPOS_NOTIFICACION.COMENTARIO_PUBLICACION: {
+      let publicacionId = null;
+      if (notificacion.referencia_tipo === 'CONTENIDO_COMENTARIO') {
+        const comentario = await ContenidoComentarios.findByPk(notificacion.referencia_id, {
+          attributes: ['id', 'contenido_id', 'contenido_tipo'],
+        });
+        if (comentario?.contenido_tipo === 'PUBLICACION') {
+          publicacionId = comentario.contenido_id;
+        }
+      }
+      return {
+        ...base,
+        destino: 'PublicacionDetail',
+        params: {
+          mode: 'feed',
+          publicacion: publicacionId ? { id: publicacionId } : undefined,
+        },
+      };
+    }
+    case TIPOS_NOTIFICACION.REACCION_PUBLICACION: {
+      const publicacionId = notificacion.referencia_tipo === 'PUBLICACION'
+        ? notificacion.referencia_id
+        : null;
+      return {
+        ...base,
+        destino: 'PublicacionDetail',
+        params: {
+          mode: 'feed',
+          publicacion: publicacionId ? { id: publicacionId } : undefined,
+        },
+      };
+    }
+    case TIPOS_NOTIFICACION.COMENTARIO_AVISO:
+    case TIPOS_NOTIFICACION.REACCION_AVISO:
+    case TIPOS_NOTIFICACION.ANUNCIO_CLUB: {
+      let anuncioId = null;
+      if (notificacion.tipo === TIPOS_NOTIFICACION.COMENTARIO_AVISO
+        && notificacion.referencia_tipo === 'CONTENIDO_COMENTARIO') {
+        const comentario = await ContenidoComentarios.findByPk(notificacion.referencia_id, {
+          attributes: ['id', 'contenido_id', 'contenido_tipo'],
+        });
+        if (comentario?.contenido_tipo === 'AVISO') {
+          anuncioId = comentario.contenido_id;
+        }
+      } else if (
+        notificacion.referencia_tipo === 'CLUB_ANUNCIO'
+        || notificacion.tipo === TIPOS_NOTIFICACION.REACCION_AVISO
+        || notificacion.tipo === TIPOS_NOTIFICACION.ANUNCIO_CLUB
+      ) {
+        anuncioId = notificacion.referencia_id;
+      }
+
+      const anuncio = anuncioId
+        ? await ClubAnuncios.findByPk(anuncioId, { attributes: ['id', 'club_id'] })
+        : null;
+      return {
+        ...base,
+        destino: 'AvisoDetail',
+        params: {
+          clubId: anuncio?.club_id,
+          anuncioId: anuncio?.id,
+          openComments: notificacion.tipo === TIPOS_NOTIFICACION.COMENTARIO_AVISO,
+        },
+      };
+    }
     default:
       return { ...base, destino: null, params: {} };
   }
@@ -674,6 +1220,7 @@ function serializarNotificacion(json, navegacion) {
     categoria: json.categoria,
     mensaje: json.mensaje,
     leida: json.leida,
+    vista_bandeja: Boolean(json.vista_bandeja),
     created_at: json.created_at,
     referencia_id: json.referencia_id,
     referencia_tipo: json.referencia_tipo,
@@ -717,9 +1264,14 @@ export function validarCategoriaFiltro(categoria) {
   return categoria;
 }
 
+/**
+ * Contador del badge del bottom nav.
+ * Usa vista_bandeja (no leida): se limpia al entrar a la bandeja,
+ * sin quitar el indicador visual de no leída en la lista.
+ */
 export async function contarNoLeidas(usuarioId) {
   return Notificaciones.count({
-    where: { usuario_id: usuarioId, leida: false },
+    where: { usuario_id: usuarioId, vista_bandeja: false },
   });
 }
 
@@ -730,19 +1282,31 @@ export async function marcarNotificacionLeida(notificacionId, usuarioId) {
 
   if (!notificacion) return null;
 
-  if (!notificacion.leida) {
-    await notificacion.update({ leida: true });
+  const patch = {};
+  if (!notificacion.leida) patch.leida = true;
+  if (!notificacion.vista_bandeja) patch.vista_bandeja = true;
+  if (Object.keys(patch).length) {
+    await notificacion.update(patch);
   }
 
   const json = notificacion.toJSON();
   const navegacion = await resolverNavegacion(json);
 
-  return serializarNotificacion({ ...json, leida: true }, navegacion);
+  return serializarNotificacion({ ...json, leida: true, vista_bandeja: true }, navegacion);
+}
+
+/** Resetea el badge al abrir la pantalla de Notificaciones. No marca leida. */
+export async function marcarVistaBandeja(usuarioId) {
+  await Notificaciones.update(
+    { vista_bandeja: true },
+    { where: { usuario_id: usuarioId, vista_bandeja: false } }
+  );
+  return contarNoLeidas(usuarioId);
 }
 
 export async function marcarTodasLeidas(usuarioId) {
   await Notificaciones.update(
-    { leida: true },
+    { leida: true, vista_bandeja: true },
     { where: { usuario_id: usuarioId, leida: false } }
   );
   return contarNoLeidas(usuarioId);

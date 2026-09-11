@@ -7,6 +7,8 @@ import {
   PartidoJugadorStats,
   User,
   Seguidores,
+  Clubs,
+  ClubDivisiones,
 } from '../db/db.js';
 import { listarPublicacionesDeEquipo } from './publicacionesService.js';
 
@@ -19,6 +21,12 @@ const includeEquipo = (teamWhere = {}) => [
     include: [
       { model: Sports, as: 'sport', attributes: ['id', 'name'] },
       { model: DataTeam, as: 'estadisticas', required: false },
+      {
+        model: User,
+        as: 'capitan',
+        attributes: ['id', 'nick', 'name', 'photo'],
+        required: false,
+      },
     ],
   },
 ];
@@ -62,6 +70,16 @@ const serializarMembresia = (membresia, statsMap) => {
     sport_id: equipo.sport_id,
     sport: equipo.sport,
     capitan_id: equipo.capitan_id,
+    capitan: equipo.capitan
+      ? {
+          id: equipo.capitan.id,
+          nick: equipo.capitan.nick,
+          name: equipo.capitan.name,
+          photo: equipo.capitan.photo,
+        }
+      : null,
+    categoria_edad: equipo.categoria_edad ?? null,
+    genero: equipo.genero ?? null,
     position: membresia.position,
     miembro_id: membresia.id,
     rol: membresia.rol,
@@ -126,19 +144,31 @@ export const listarEquiposCapitanPorDeporte = async (userId, sportId = null) => 
 
   const comoCapitanEnTeam = await Team.findAll({
     where: { capitan_id: userId, ...teamWhere },
-    include: [{ model: Sports, as: 'sport', attributes: ['id', 'name'] }],
+    include: [
+      { model: Sports, as: 'sport', attributes: ['id', 'name'] },
+      {
+        model: User,
+        as: 'capitan',
+        attributes: ['id', 'nick', 'name', 'photo'],
+        required: false,
+      },
+    ],
   });
 
   comoCapitanEnTeam.forEach((team) => {
     if (porId.has(team.id)) return;
+    const json = team.toJSON();
     porId.set(team.id, {
       id: team.id,
       name: team.name,
       logo_url: team.logo_url,
       url: team.url,
       sport_id: team.sport_id,
-      sport: team.sport,
+      sport: json.sport,
       capitan_id: team.capitan_id,
+      capitan: json.capitan ?? null,
+      categoria_edad: team.categoria_edad ?? null,
+      genero: team.genero ?? null,
       rol: 'CAPITAN',
       estado_invitacion: 'ACEPTADO',
       stats: { goles: 0, partidos: 0 },
@@ -173,6 +203,18 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
       { model: Sports, as: 'sport', attributes: ['id', 'name'] },
       { model: DataTeam, as: 'estadisticas', required: false },
       {
+        model: Clubs,
+        as: 'club',
+        required: false,
+        attributes: ['id', 'nombre', 'logo_url'],
+      },
+      {
+        model: ClubDivisiones,
+        as: 'clubDivision',
+        required: false,
+        attributes: ['id', 'nombre', 'genero', 'categoria_edad'],
+      },
+      {
         model: TeamMiembros,
         as: 'miembros',
         required: false,
@@ -204,8 +246,11 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
           where: { seguidor_user_id: viewerId, seguido_team_id: teamId },
         })
       : null,
-    listarPublicacionesDeEquipo(memberIds, equipo.sport_id),
+    listarPublicacionesDeEquipo(teamId, memberIds, equipo.sport_id),
   ]);
+
+  const generoDisplay = equipo.clubDivision?.genero ?? equipo.genero ?? null;
+  const categoriaDisplay = equipo.clubDivision?.categoria_edad ?? equipo.categoria_edad ?? null;
 
   return {
     equipo: {
@@ -217,6 +262,19 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
       ciudad_base: equipo.ciudad_base ?? null,
       descripcion: equipo.estadisticas?.descripcion ?? null,
       capitan_id: equipo.capitan_id,
+      categoria_edad: categoriaDisplay,
+      genero: generoDisplay,
+      club: equipo.club
+        ? { id: equipo.club.id, nombre: equipo.club.nombre, logo_url: equipo.club.logo_url }
+        : null,
+      club_division: equipo.clubDivision
+        ? {
+            id: equipo.clubDivision.id,
+            nombre: equipo.clubDivision.nombre,
+            genero: equipo.clubDivision.genero,
+            categoria_edad: equipo.clubDivision.categoria_edad,
+          }
+        : null,
     },
     jugadores,
     publicaciones,

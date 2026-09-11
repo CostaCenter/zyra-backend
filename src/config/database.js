@@ -15,10 +15,28 @@ const URL_ENV_KEYS = [
   'POSTGRES_PRIVATE_URL',
 ];
 
+/** Dev local real: .env con DB_HOST=localhost gana sobre variables Railway heredadas del shell. */
+function shouldUseLocalEnvDatabase() {
+  const host = (process.env.DB_HOST || '').trim().toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+function isLocalDev() {
+  return !process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_PROJECT_ID;
+}
+
 function resolveDatabaseUrl() {
+  if (shouldUseLocalEnvDatabase()) {
+    return null;
+  }
+
   for (const key of URL_ENV_KEYS) {
     if (process.env[key]) {
-      return process.env[key];
+      const url = process.env[key];
+      if (isLocalDev() && /railway\.(internal|app)/i.test(url)) {
+        continue;
+      }
+      return url;
     }
   }
 
@@ -41,9 +59,10 @@ function resolveDatabaseUrl() {
   return null;
 }
 
+const useLocalEnvDatabase = shouldUseLocalEnvDatabase();
 const databaseUrl = resolveDatabaseUrl();
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
-const isProduction = process.env.NODE_ENV === 'production' || isRailway;
+const isProduction = (process.env.NODE_ENV === 'production' || isRailway) && !useLocalEnvDatabase;
 
 if (!databaseUrl && isProduction) {
   const dbKeys = Object.keys(process.env).filter((key) => /DATABASE|POSTGRES|^PG/i.test(key));

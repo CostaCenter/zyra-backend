@@ -10,6 +10,7 @@ import {
   Sports,
 } from '../db/db.js';
 import { serializarPublicacion } from './publicacionesService.js';
+import { enriquecerInteraccionesBatch } from './interaccionSocialService.js';
 
 const LIMITE_DEFAULT = 10;
 
@@ -20,6 +21,12 @@ const includePublicacion = [
     attributes: ['id', 'nick', 'name', 'photo'],
     where: { status: 'ACTIVO' },
     required: true,
+  },
+  {
+    model: Team,
+    as: 'equipo',
+    attributes: ['id', 'name', 'logo_url'],
+    required: false,
   },
   {
     model: PublicacionDeportes,
@@ -192,16 +199,25 @@ const enriquecerPublicacionesFeed = async (publicaciones, viewerUserId) => {
     }, {});
   }
 
+  const publicacionIds = publicaciones.map((p) => p.id);
+  const interaccionesMap = await enriquecerInteraccionesBatch('PUBLICACION', publicacionIds, viewerUserId);
+
   return publicaciones.map((publicacion) => {
     const base = serializarPublicacionReciente(publicacion);
     const autorId = base.autor?.id ?? base.user_id;
     const seguimientoId = seguimientosMap[autorId] ?? null;
+    const inter = interaccionesMap.get(publicacion.id);
 
     return {
       ...base,
-      stats: {
-        likes: 0,
+      stats: inter?.stats ?? {
+        reacciones: 0,
         comentarios: 0,
+      },
+      interacciones: inter?.reacciones ?? {
+        total: 0,
+        por_tipo: {},
+        mi_reaccion: null,
       },
       social: {
         es_propio: viewerUserId === autorId,

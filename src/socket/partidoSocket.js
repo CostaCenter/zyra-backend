@@ -8,10 +8,21 @@ export const salaUsuario = (usuarioId) => `usuario_${usuarioId}`;
 
 export function initPartidoSocket(httpServer) {
   io = new Server(httpServer, {
+    path: '/socket.io',
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
+      credentials: true,
     },
+    // Railway / proxies: polling como fallback si el upgrade WS falla
+    transports: ['websocket', 'polling'],
+    allowEIO3: true,
+    pingInterval: 25000,
+    pingTimeout: 60000,
+  });
+
+  io.engine.on('connection_error', (err) => {
+    console.warn('⚠️  Socket.IO connection_error:', err?.message || err);
   });
 
   io.on('connection', (socket) => {
@@ -41,6 +52,14 @@ export function initPartidoSocket(httpServer) {
   });
 
   return io;
+}
+
+export function getSocketStatus() {
+  return {
+    ready: Boolean(io),
+    path: '/socket.io',
+    clients: io?.engine?.clientsCount ?? 0,
+  };
 }
 
 export function emitMarcadorActualizado(partidoId, payload) {

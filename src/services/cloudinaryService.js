@@ -100,7 +100,8 @@ export const subirMediaPublicacion = async (file) => {
     public_id: result.public_id,
     resource_type: result.resource_type,
     width: result.width ?? null,
-    height: result.height ?? null
+    height: result.height ?? null,
+    duration: result.duration ?? null,
   };
 };
 
@@ -138,6 +139,8 @@ export const subirImagenPerfil = async (file, subfolder = 'perfiles') => {
   return {
     secure_url: result.secure_url,
     public_id: result.public_id,
+    width: result.width ?? null,
+    height: result.height ?? null,
   };
 };
 

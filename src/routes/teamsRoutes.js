@@ -1,5 +1,6 @@
 import express from 'express';
 import { verifyToken } from '../middlewares/authMiddleware.js';
+import { uploadTorneoPhoto, handleMulterError } from '../middlewares/uploadMiddleware.js';
 import {
   getMisTeams,
   createTeam,
@@ -7,7 +8,8 @@ import {
   getTeamsDestacados,
   getPerfilPublicoEquipo,
   invitarMiembroEquipo,
-  responderInvitacionEquipo
+  responderInvitacionEquipo,
+  updateTeamLogo,
 } from '../controllers/teamsController.js';
 
 /**
@@ -16,6 +18,7 @@ import {
  *
  * GET  /api/teams/mios                                    → Equipos del usuario autenticado
  * POST /api/teams                                         → Crear equipo
+ * PUT  /api/teams/:team_id/logo                           → Subir logo (solo capitán)
  * GET  /api/teams/:team_id/perfil                         → Perfil público del equipo
  * GET  /api/teams/:team_id                                → Detalle con miembros
  * POST /api/teams/:team_id/invitar                        → Invitar usuario (solo capitán)
@@ -27,6 +30,17 @@ const router = express.Router();
 router.get('/mios', verifyToken, getMisTeams);
 router.get('/destacados', verifyToken, getTeamsDestacados);
 router.post('/', verifyToken, createTeam);
+router.put(
+  '/:team_id/logo',
+  verifyToken,
+  (req, res, next) => {
+    uploadTorneoPhoto(req, res, (err) => {
+      if (err) return handleMulterError(err, req, res, next);
+      next();
+    });
+  },
+  updateTeamLogo
+);
 router.get('/:team_id/perfil', verifyToken, getPerfilPublicoEquipo);
 router.get('/:team_id', verifyToken, getTeamById);
 router.post('/:team_id/invitar', verifyToken, invitarMiembroEquipo);

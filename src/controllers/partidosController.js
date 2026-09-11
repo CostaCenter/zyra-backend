@@ -230,8 +230,11 @@ export const ejecutarDefinirEquipoQueSacaSet = async (partidoId, userId, equipo)
 
 /**
  * Lógica de inicio de partido (reutilizable fuera del handler HTTP).
+ * @param {number} partidoId
+ * @param {number} userId
+ * @param {object|null} [reglasOverride] — snapshot parcial/completo (fogueo). No afecta torneos.
  */
-export const ejecutarInicioPartido = async (partidoId, userId) => {
+export const ejecutarInicioPartido = async (partidoId, userId, reglasOverride = null) => {
   if (!partidoId) {
     return { status: 400, message: 'partido_id inválido' };
   }
@@ -341,7 +344,12 @@ export const ejecutarInicioPartido = async (partidoId, userId) => {
 
   let reglasSnapshot = { ...REGLAS_ARBITRAJE_DEFAULT };
 
-  if (partido.torneo_id != null) {
+  if (reglasOverride && typeof reglasOverride === 'object') {
+    reglasSnapshot = resolverReglasArbitrajeSnapshot({
+      ...REGLAS_ARBITRAJE_DEFAULT,
+      ...reglasOverride,
+    });
+  } else if (partido.torneo_id != null) {
     const torneo = await Torneos.findByPk(partido.torneo_id, {
       attributes: ['id', 'reglas_arbitraje_json']
     });
@@ -403,7 +411,7 @@ export const asignarArbitroPartido = async (req, res) => {
     }
 
     const partido = await Partidos.findByPk(partidoId, {
-      attributes: ['id', 'torneo_id', 'arbitro_asignado_id']
+      attributes: ['id', 'torneo_id', 'arbitro_asignado_id', 'programado_por_id', 'name', 'tipo']
     });
 
     if (!partido) {
@@ -413,10 +421,60 @@ export const asignarArbitroPartido = async (req, res) => {
       });
     }
 
-    if (partido.torneo_id == null) {
+    const arbitroId = parseId(req.body?.arbitro_asignado_id);
+    if (!arbitroId) {
       return res.status(400).json({
         success: false,
-        message: 'Este partido no pertenece a un torneo, no requiere árbitro asignado'
+        message: 'arbitro_asignado_id es obligatorio y debe ser un número válido'
+      });
+    }
+
+    const arbitro = await User.findByPk(arbitroId, { attributes: ['id'] });
+    if (!arbitro) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario árbitro no encontrado'
+      });
+    }
+
+    if (partido.torneo_id == null) {
+      const participantes = await PartidoParticipantes.findAll({
+        where: { partido_id: partidoId },
+        attributes: ['team_id'],
+      });
+      const teamIds = [...new Set(participantes.map((p) => p.team_id).filter(Boolean))];
+      const equipos = teamIds.length
+        ? await Team.findAll({ where: { id: teamIds }, attributes: ['id', 'capitan_id'] })
+        : [];
+      const esProgramador = partido.programado_por_id === req.userId;
+      const esCapitan = equipos.some((e) => e.capitan_id === req.userId);
+
+      if (!esProgramador && !esCapitan) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo quien programó el amistoso o un capitán participante puede asignar árbitro',
+        });
+      }
+
+      await partido.update({
+        arbitro_asignado_id: arbitroId,
+        arbitro_confirmacion_estado: 'PENDIENTE',
+      });
+
+      await notificarAsignacionArbitro({
+        partidoId,
+        arbitroId,
+        torneo: { nombre: partido.name || 'Partido amistoso' },
+      });
+
+      const partidoActualizado = await Partidos.findByPk(partidoId, {
+        include: includePartidoConArbitro
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Árbitro asignado al partido amistoso',
+        data: partidoActualizado.toJSON()
       });
     }
 
@@ -435,22 +493,6 @@ export const asignarArbitroPartido = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'Solo el creador del torneo puede realizar esta acción'
-      });
-    }
-
-    const arbitroId = parseId(req.body?.arbitro_asignado_id);
-    if (!arbitroId) {
-      return res.status(400).json({
-        success: false,
-        message: 'arbitro_asignado_id es obligatorio y debe ser un número válido'
-      });
-    }
-
-    const arbitro = await User.findByPk(arbitroId, { attributes: ['id'] });
-    if (!arbitro) {
-      return res.status(404).json({
-        success: false,
-        message: 'Usuario árbitro no encontrado'
       });
     }
 

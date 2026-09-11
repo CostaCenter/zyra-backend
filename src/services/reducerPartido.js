@@ -73,6 +73,13 @@ const equipoPuntoALlave = (equipoPunto) => {
   return null;
 };
 
+/** Normaliza a 'local' | 'visitante' (acepta mayúsculas legacy del fogueo). */
+const normalizarEquipoSaca = (valor) => {
+  if (valor == null) return null;
+  const s = String(valor).trim().toLowerCase();
+  return s === 'local' || s === 'visitante' ? s : null;
+};
+
 function estadoPosicionesInicial(posicionesIniciales, equipoQueSacaInicial) {
   return {
     posiciones_actuales: {
@@ -83,7 +90,7 @@ function estadoPosicionesInicial(posicionesIniciales, equipoQueSacaInicial) {
         ? [...posicionesIniciales.equipo_visitante]
         : null
     },
-    equipo_que_saca: equipoQueSacaInicial ?? null
+    equipo_que_saca: normalizarEquipoSaca(equipoQueSacaInicial)
   };
 }
 
@@ -153,7 +160,9 @@ function reducirPosicionesVolley(
           estado = {
             ...estado,
             posiciones_actuales: posicionesReset,
-            ...(saqueSet ? { equipo_que_saca: saqueSet } : {}),
+            ...(saqueSet
+              ? { equipo_que_saca: normalizarEquipoSaca(saqueSet) }
+              : {}),
           };
         }
       }
@@ -170,7 +179,8 @@ function aplicarRotacionVolleyPorPunto(estado, evento) {
     return estado;
   }
 
-  const huboSideOut = estado.equipo_que_saca != null && equipoLlave !== estado.equipo_que_saca;
+  const saqueActual = normalizarEquipoSaca(estado.equipo_que_saca);
+  const huboSideOut = saqueActual != null && equipoLlave !== saqueActual;
   const posiciones = { ...estado.posiciones_actuales };
 
   if (huboSideOut) {
@@ -254,7 +264,9 @@ function obtenerParcialesSets(metricaEstructura) {
 }
 
 function resolverPuntosPorSet(reglas, setsGanadosLocal, setsGanadosVisitante) {
+  // Con 1 set a ganar no hay "set decisivo"; se juega a puntos_por_set normales.
   const esSetDecisivo =
+    reglas.sets_para_ganar > 1 &&
     setsGanadosLocal === reglas.sets_para_ganar - 1 &&
     setsGanadosVisitante === reglas.sets_para_ganar - 1;
 

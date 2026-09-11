@@ -3,7 +3,8 @@ import {
   PublicacionDeportes,
   PublicacionEtiquetas,
   User,
-  Sports
+  Sports,
+  Team,
 } from '../db/db.js';
 import {
   subirMediaPublicacion,
@@ -34,6 +35,11 @@ export const crearPublicacion = async (req, res) => {
     const caption = req.body.caption?.trim() || null;
     const sportIds = parseSportIds(req.body.sport_ids);
     const etiquetados = parseEtiquetados(req.body.etiquetados);
+    const publicadoComo = req.body.publicado_como === 'EQUIPO' ? 'EQUIPO' : 'USUARIO';
+    const equipoIdRaw = req.body.equipo_id;
+    const equipoId = equipoIdRaw != null && equipoIdRaw !== ''
+      ? parseInt(equipoIdRaw, 10)
+      : null;
 
     const upload = await subirMediaPublicacion(req.file);
     const tipo = inferirTipoPublicacion(req.file.mimetype, req.file.originalname);
@@ -55,15 +61,28 @@ export const crearPublicacion = async (req, res) => {
       sportIds,
       etiquetados,
       mediaWidth: upload.width,
-      mediaHeight: upload.height
+      mediaHeight: upload.height,
+      publicadoComo,
+      equipoId: Number.isNaN(equipoId) ? null : equipoId,
     });
 
     const completa = await Publicaciones.findByPk(publicacion.id, {
       include: [
         {
+          model: User,
+          as: 'autor',
+          attributes: ['id', 'nick', 'name', 'photo'],
+        },
+        {
           model: PublicacionDeportes,
           as: 'deportes',
           include: [{ model: Sports, as: 'sport', attributes: ['id', 'name'] }]
+        },
+        {
+          model: Team,
+          as: 'equipo',
+          attributes: ['id', 'name', 'logo_url'],
+          required: false,
         },
         {
           model: PublicacionEtiquetas,
@@ -84,6 +103,12 @@ export const crearPublicacion = async (req, res) => {
     });
   } catch (error) {
     console.error('Error en crearPublicacion:', error);
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+    }
     const mensaje = formatearErrorCloudinary(error);
     const esCloudinary = Boolean(error?.http_code);
     return res.status(esCloudinary ? 422 : 500).json({

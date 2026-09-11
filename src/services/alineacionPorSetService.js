@@ -6,6 +6,7 @@ import { resolverSaqueSetVolley } from './saquePorSetService.js';
 
 /**
  * Construye mapa { setNumero: { equipo_local, equipo_visitante } } desde filas VALIDADO.
+ * En fogueo/práctica interna el mismo team_id juega ambos bandos → priorizar row.es_local.
  * @param {Array} nominasRows
  * @param {Map<number, boolean>} teamEsLocal - team_id -> es_local
  */
@@ -19,7 +20,9 @@ export const construirAlineacionesPorSetDesdeNominas = (nominasRows, teamEsLocal
     if (!porSet[setNum]) {
       porSet[setNum] = { local: [], visitante: [] };
     }
-    const esLocal = teamEsLocal.get(row.team_id);
+    const esLocal = row.es_local == null
+      ? teamEsLocal.get(row.team_id)
+      : row.es_local === true;
     if (esLocal === true) {
       porSet[setNum].local.push(row);
     } else if (esLocal === false) {
@@ -70,7 +73,7 @@ export const cargarAlineacionesPorSet = async (partidoId, transaction) => {
   const [nominas, participantes] = await Promise.all([
     PartidoNominas.findAll({
       where: { partido_id: partidoId, estado_validacion: 'VALIDADO' },
-      attributes: ['team_id', 'user_id', 'rol_nomina', 'zona', 'set_numero', 'estado_validacion'],
+      attributes: ['team_id', 'user_id', 'rol_nomina', 'zona', 'set_numero', 'estado_validacion', 'es_local'],
       transaction,
     }),
     PartidoParticipantes.findAll({

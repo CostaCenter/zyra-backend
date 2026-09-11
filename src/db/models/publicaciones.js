@@ -43,6 +43,18 @@ export default (sequelize) => {
       allowNull: false,
       defaultValue: false,
       comment: 'Marcador local — datos seed, no producción'
+    },
+    publicado_como: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      defaultValue: 'USUARIO',
+      validate: {
+        isIn: [['USUARIO', 'EQUIPO']]
+      }
+    },
+    equipo_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     }
   }, {
     tableName: 'publicaciones',

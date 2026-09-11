@@ -294,35 +294,35 @@ export const generarRoundRobin = async (
       const partidosJornada = jornadas[indiceJornada];
 
       for (const [equipoLocalId, equipoVisitanteId] of partidosJornada) {
-        const partido = await PartidosModel.create(
-          {
-            ...crearPayloadPartido(fase, faseTorneoId, torneo),
+      const partido = await PartidosModel.create(
+        {
+          ...crearPayloadPartido(fase, faseTorneoId, torneo),
             grupo_division_id: grupoDivisionId,
             jornada: numeroJornada
-          },
-          { transaction }
-        );
+        },
+        { transaction }
+      );
 
-        await PartidoParticipantesModel.create(
-          {
-            partido_id: partido.id,
-            team_id: equipoLocalId,
-            es_local: true
-          },
-          { transaction }
-        );
+      await PartidoParticipantesModel.create(
+        {
+          partido_id: partido.id,
+          team_id: equipoLocalId,
+          es_local: true
+        },
+        { transaction }
+      );
 
-        await PartidoParticipantesModel.create(
-          {
-            partido_id: partido.id,
-            team_id: equipoVisitanteId,
-            es_local: false
-          },
-          { transaction }
-        );
+      await PartidoParticipantesModel.create(
+        {
+          partido_id: partido.id,
+          team_id: equipoVisitanteId,
+          es_local: false
+        },
+        { transaction }
+      );
 
-        creados.push(partido);
-      }
+      creados.push(partido);
+    }
     }
 
     const ordenSorteo = await persistirOrdenSorteo(
@@ -415,8 +415,8 @@ export const generarEliminacionDirecta = async (
       slots: sorteo.slots,
     });
   } else if (asignarSlotsCustom || random) {
-    const asignarSlots = asignarSlotsCustom
-      ?? ((equipos, tamano) => asignarSlotsEnBracket(equipos, tamano, random ?? Math.random));
+  const asignarSlots = asignarSlotsCustom
+    ?? ((equipos, tamano) => asignarSlotsEnBracket(equipos, tamano, random ?? Math.random));
     slots = asignarSlots(teamIdsEntrada, tamanoBracket);
     entradaSorteo = construirEntradaOrdenSorteo({
       faseTorneoId,

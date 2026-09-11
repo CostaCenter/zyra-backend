@@ -62,6 +62,22 @@ const MIGRATION_FILES = [
   '037_drop_legacy_nomina_unique_indexes.sql',
   '038_notificacion_alineacion_pendiente_set.sql',
   '039_usuario_foto_portada.sql',
+  '040_team_categoria_genero.sql',
+  '041_publicacion_como_equipo.sql',
+  '042_clubs.sql',
+  '043_notificaciones_club.sql',
+  '044_club_gestion.sql',
+  '045_club_destacados.sql',
+  '046_club_division_genero_null.sql',
+  '047_club_division_atletas.sql',
+  '048_club_division_invitaciones.sql',
+  '049_club_evento_entrenamiento.sql',
+  '050_interaccion_social.sql',
+  '051_club_anuncios_imagen.sql',
+  '052_club_evento_completado.sql',
+  '053_club_membresia_solicitudes.sql',
+  '054_interacciones_sociales_extension.sql',
+  '055_notificaciones_vista_bandeja.sql',
 ];
 
 async function runSqlFile(fileName) {

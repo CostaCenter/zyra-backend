@@ -39,6 +39,24 @@ export default (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true
     },
+    categoria_edad: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      comment: 'Ej. Sub-20, Sub-18, Senior'
+    },
+    genero: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+      comment: 'MASCULINO, FEMENINO, MIXTO'
+    },
+    club_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    club_division_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     es_dato_prueba: {
       type: DataTypes.BOOLEAN,
       allowNull: false,

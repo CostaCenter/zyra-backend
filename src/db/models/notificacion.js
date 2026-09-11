@@ -36,6 +36,11 @@ export default (sequelize) => {
       allowNull: false,
       defaultValue: false,
     },
+    vista_bandeja: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   }, {
     tableName: 'notificaciones',
     timestamps: true,

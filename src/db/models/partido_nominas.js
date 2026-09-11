@@ -63,6 +63,11 @@ export default (sequelize) => {
       defaultValue: 1,
       comment: 'Set al que aplica esta nómina/alineación (1-based)'
     },
+    es_local: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      comment: 'Bando local/visitante; obligatorio si el mismo equipo juega ambos bandos'
+    },
     creado_at: {
       type: DataTypes.DATE,
       allowNull: false,

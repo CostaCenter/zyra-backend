@@ -50,6 +50,28 @@ import publicacionEtiquetasModel from './models/publicacion_etiquetas.js';
 import seguidoresModel from './models/seguidores.js';
 import notificacionModel from './models/notificacion.js';
 import dispositivoPushModel from './models/dispositivoPush.js';
+import clubModel from './models/club.js';
+import clubDivisionModel from './models/clubDivision.js';
+import clubSolicitudModel from './models/clubSolicitud.js';
+import clubMembresiaSolicitudModel from './models/clubMembresiaSolicitud.js';
+import clubMiembroModel from './models/clubMiembro.js';
+import clubAnuncioModel from './models/clubAnuncio.js';
+import clubDestacadoModel from './models/clubDestacado.js';
+import clubDestacadoItemModel from './models/clubDestacadoItem.js';
+import clubEventoModel from './models/clubEvento.js';
+import clubEventoConfirmacionModel from './models/clubEventoConfirmacion.js';
+import clubEventoAsistenciaModel from './models/clubEventoAsistencia.js';
+import clubMetricaEvaluacionModel from './models/clubMetricaEvaluacion.js';
+import clubEventoEvaluacionModel from './models/clubEventoEvaluacion.js';
+import clubDivisionAtletaModel from './models/clubDivisionAtleta.js';
+import clubDivisionInvitacionModel from './models/clubDivisionInvitacion.js';
+import clubEventoEvaluacionDetalleModel from './models/clubEventoEvaluacionDetalle.js';
+import contenidoReaccionModel from './models/contenidoReaccion.js';
+import contenidoComentarioModel from './models/contenidoComentario.js';
+import contenidoReporteModel from './models/contenidoReporte.js';
+import encuestaModel from './models/encuesta.js';
+import encuestaOpcionModel from './models/encuestaOpcion.js';
+import encuestaVotoModel from './models/encuestaVoto.js';
 
 // Inicializar modelos
 const Usuarios = usuariosModel(sequelize);
@@ -98,6 +120,28 @@ const PublicacionEtiquetas = publicacionEtiquetasModel(sequelize);
 const Seguidores = seguidoresModel(sequelize);
 const Notificaciones = notificacionModel(sequelize);
 const DispositivosPush = dispositivoPushModel(sequelize);
+const Clubs = clubModel(sequelize);
+const ClubDivisiones = clubDivisionModel(sequelize);
+const ClubSolicitudes = clubSolicitudModel(sequelize);
+const ClubMembresiaSolicitudes = clubMembresiaSolicitudModel(sequelize);
+const ClubMiembros = clubMiembroModel(sequelize);
+const ClubAnuncios = clubAnuncioModel(sequelize);
+const ClubDestacados = clubDestacadoModel(sequelize);
+const ClubDestacadoItems = clubDestacadoItemModel(sequelize);
+const ClubEventos = clubEventoModel(sequelize);
+const ClubEventoConfirmaciones = clubEventoConfirmacionModel(sequelize);
+const ClubEventoAsistencias = clubEventoAsistenciaModel(sequelize);
+const ClubMetricaEvaluacion = clubMetricaEvaluacionModel(sequelize);
+const ClubEventoEvaluacion = clubEventoEvaluacionModel(sequelize);
+const ClubDivisionAtletas = clubDivisionAtletaModel(sequelize);
+const ClubDivisionInvitaciones = clubDivisionInvitacionModel(sequelize);
+const ClubEventoEvaluacionDetalle = clubEventoEvaluacionDetalleModel(sequelize);
+const ContenidoReacciones = contenidoReaccionModel(sequelize);
+const ContenidoComentarios = contenidoComentarioModel(sequelize);
+const ContenidoReportes = contenidoReporteModel(sequelize);
+const Encuestas = encuestaModel(sequelize);
+const EncuestaOpciones = encuestaOpcionModel(sequelize);
+const EncuestaVotos = encuestaVotoModel(sequelize);
 
 // ============================================
 // DEFINIR TODAS LAS RELACIONES (ASSOCIATIONS)
@@ -403,6 +447,9 @@ Team.hasMany(GrupoEquipos, { foreignKey: 'team_id', as: 'asignacionesGrupo' });
 Publicaciones.belongsTo(User, { foreignKey: 'user_id', as: 'autor' });
 User.hasMany(Publicaciones, { foreignKey: 'user_id', as: 'publicaciones' });
 
+Publicaciones.belongsTo(Team, { foreignKey: 'equipo_id', as: 'equipo' });
+Team.hasMany(Publicaciones, { foreignKey: 'equipo_id', as: 'publicacionesEquipo' });
+
 PublicacionDeportes.belongsTo(Publicaciones, { foreignKey: 'publicacion_id', as: 'publicacion' });
 Publicaciones.hasMany(PublicacionDeportes, { foreignKey: 'publicacion_id', as: 'deportes' });
 
@@ -432,6 +479,139 @@ User.hasMany(Notificaciones, { foreignKey: 'usuario_id', as: 'notificaciones' })
 
 DispositivosPush.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
 User.hasMany(DispositivosPush, { foreignKey: 'usuario_id', as: 'dispositivosPush' });
+
+// --- CLUBES ---
+Clubs.belongsTo(Sports, { foreignKey: 'sport_id', as: 'sport' });
+Sports.hasMany(Clubs, { foreignKey: 'sport_id', as: 'clubes' });
+
+Clubs.belongsTo(User, { foreignKey: 'admin_id', as: 'admin' });
+User.hasMany(Clubs, { foreignKey: 'admin_id', as: 'clubesAdministrados' });
+
+ClubDivisiones.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubDivisiones, { foreignKey: 'club_id', as: 'divisiones' });
+
+ClubDivisiones.belongsTo(User, { foreignKey: 'encargado_id', as: 'encargado' });
+User.hasMany(ClubDivisiones, { foreignKey: 'encargado_id', as: 'divisionesEncargadas' });
+
+ClubSolicitudes.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubSolicitudes, { foreignKey: 'club_id', as: 'solicitudes' });
+
+ClubSolicitudes.belongsTo(Team, { foreignKey: 'equipo_id', as: 'equipo' });
+Team.hasMany(ClubSolicitudes, { foreignKey: 'equipo_id', as: 'solicitudesClub' });
+
+ClubSolicitudes.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
+ClubDivisiones.hasMany(ClubSolicitudes, { foreignKey: 'club_division_id', as: 'solicitudes' });
+
+ClubSolicitudes.belongsTo(User, { foreignKey: 'iniciado_por_id', as: 'iniciadoPor' });
+User.hasMany(ClubSolicitudes, { foreignKey: 'iniciado_por_id', as: 'solicitudesClubIniciadas' });
+
+ClubSolicitudes.belongsTo(User, { foreignKey: 'resuelto_por_id', as: 'resueltoPor' });
+User.hasMany(ClubSolicitudes, { foreignKey: 'resuelto_por_id', as: 'solicitudesClubResueltas' });
+
+Team.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(Team, { foreignKey: 'club_id', as: 'equipos' });
+
+Team.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'clubDivision' });
+ClubDivisiones.hasMany(Team, { foreignKey: 'club_division_id', as: 'equipos' });
+
+Torneos.belongsTo(Clubs, { foreignKey: 'club_organizador_id', as: 'clubOrganizador' });
+Clubs.hasMany(Torneos, { foreignKey: 'club_organizador_id', as: 'torneos' });
+
+Partidos.belongsTo(User, { foreignKey: 'programado_por_id', as: 'programadoPor' });
+User.hasMany(Partidos, { foreignKey: 'programado_por_id', as: 'partidosProgramados' });
+
+Partidos.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'clubDivision' });
+ClubDivisiones.hasMany(Partidos, { foreignKey: 'club_division_id', as: 'partidosPractica' });
+
+ClubMiembros.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubMiembros, { foreignKey: 'club_id', as: 'miembros' });
+ClubMiembros.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+User.hasMany(ClubMiembros, { foreignKey: 'usuario_id', as: 'membresiasClub' });
+
+ClubMembresiaSolicitudes.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubMembresiaSolicitudes, { foreignKey: 'club_id', as: 'membresiaSolicitudes' });
+ClubMembresiaSolicitudes.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+User.hasMany(ClubMembresiaSolicitudes, { foreignKey: 'usuario_id', as: 'solicitudesMembresiaClub' });
+ClubMembresiaSolicitudes.belongsTo(User, { foreignKey: 'resuelto_por_id', as: 'resueltoPor' });
+User.hasMany(ClubMembresiaSolicitudes, { foreignKey: 'resuelto_por_id', as: 'membresiaSolicitudesResueltas' });
+
+ClubAnuncios.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubAnuncios, { foreignKey: 'club_id', as: 'anuncios' });
+ClubAnuncios.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
+ClubAnuncios.belongsTo(Team, { foreignKey: 'equipo_id', as: 'equipo' });
+ClubAnuncios.belongsTo(User, { foreignKey: 'autor_id', as: 'autor' });
+
+ClubDestacados.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubDestacados, { foreignKey: 'club_id', as: 'destacados' });
+ClubDestacadoItems.belongsTo(ClubDestacados, { foreignKey: 'destacado_id', as: 'destacado' });
+ClubDestacados.hasMany(ClubDestacadoItems, { foreignKey: 'destacado_id', as: 'items' });
+
+ClubEventos.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
+ClubDivisiones.hasMany(ClubEventos, { foreignKey: 'club_division_id', as: 'eventos' });
+ClubEventos.belongsTo(User, { foreignKey: 'creado_por_id', as: 'creadoPor' });
+ClubEventos.belongsTo(Partidos, { foreignKey: 'partido_id', as: 'partido' });
+Partidos.hasMany(ClubEventos, { foreignKey: 'partido_id', as: 'eventosClub' });
+
+ClubEventoConfirmaciones.belongsTo(ClubEventos, { foreignKey: 'evento_id', as: 'evento' });
+ClubEventos.hasMany(ClubEventoConfirmaciones, { foreignKey: 'evento_id', as: 'confirmaciones' });
+ClubEventoConfirmaciones.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+
+ClubEventoAsistencias.belongsTo(ClubEventos, { foreignKey: 'evento_id', as: 'evento' });
+ClubEventos.hasMany(ClubEventoAsistencias, { foreignKey: 'evento_id', as: 'asistencias' });
+ClubEventoAsistencias.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+ClubEventoAsistencias.belongsTo(User, { foreignKey: 'registrado_por', as: 'registradoPor' });
+
+ClubMetricaEvaluacion.belongsTo(Sports, { foreignKey: 'sport_id', as: 'sport' });
+Sports.hasMany(ClubMetricaEvaluacion, { foreignKey: 'sport_id', as: 'metricasClub' });
+
+ClubEventoEvaluacion.belongsTo(ClubEventos, { foreignKey: 'evento_id', as: 'evento' });
+ClubEventos.hasMany(ClubEventoEvaluacion, { foreignKey: 'evento_id', as: 'evaluaciones' });
+ClubEventoEvaluacion.belongsTo(User, { foreignKey: 'usuario_id', as: 'jugador' });
+ClubEventoEvaluacion.belongsTo(User, { foreignKey: 'evaluador_id', as: 'evaluador' });
+
+ClubEventoEvaluacionDetalle.belongsTo(ClubEventoEvaluacion, { foreignKey: 'evaluacion_id', as: 'evaluacion' });
+ClubEventoEvaluacion.hasMany(ClubEventoEvaluacionDetalle, { foreignKey: 'evaluacion_id', as: 'detalles' });
+ClubEventoEvaluacionDetalle.belongsTo(ClubMetricaEvaluacion, { foreignKey: 'metrica_id', as: 'metrica' });
+
+ClubDivisionAtletas.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
+ClubDivisiones.hasMany(ClubDivisionAtletas, { foreignKey: 'club_division_id', as: 'atletas' });
+ClubDivisionAtletas.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+User.hasMany(ClubDivisionAtletas, { foreignKey: 'usuario_id', as: 'nominaDivisiones' });
+
+ClubDivisionInvitaciones.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
+ClubDivisiones.hasMany(ClubDivisionInvitaciones, { foreignKey: 'club_division_id', as: 'invitaciones' });
+ClubDivisionInvitaciones.belongsTo(User, { foreignKey: 'usuario_invitado_id', as: 'invitado' });
+ClubDivisionInvitaciones.belongsTo(User, { foreignKey: 'invitado_por_id', as: 'invitador' });
+User.hasMany(ClubDivisionInvitaciones, { foreignKey: 'usuario_invitado_id', as: 'invitacionesDivisionRecibidas' });
+User.hasMany(ClubDivisionInvitaciones, { foreignKey: 'invitado_por_id', as: 'invitacionesDivisionEnviadas' });
+
+// --- INTERACCIONES SOCIALES ---
+ContenidoReacciones.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+User.hasMany(ContenidoReacciones, { foreignKey: 'usuario_id', as: 'reaccionesContenido' });
+
+ContenidoComentarios.belongsTo(User, { foreignKey: 'usuario_id', as: 'autor' });
+User.hasMany(ContenidoComentarios, { foreignKey: 'usuario_id', as: 'comentariosContenido' });
+ContenidoComentarios.belongsTo(ContenidoComentarios, {
+  foreignKey: 'comentario_padre_id',
+  as: 'padre',
+});
+ContenidoComentarios.hasMany(ContenidoComentarios, {
+  foreignKey: 'comentario_padre_id',
+  as: 'respuestas',
+});
+
+ContenidoReportes.belongsTo(User, { foreignKey: 'reportado_por_id', as: 'reportador' });
+User.hasMany(ContenidoReportes, { foreignKey: 'reportado_por_id', as: 'reportesContenido' });
+
+Encuestas.hasMany(EncuestaOpciones, { foreignKey: 'encuesta_id', as: 'opciones' });
+EncuestaOpciones.belongsTo(Encuestas, { foreignKey: 'encuesta_id', as: 'encuesta' });
+
+EncuestaVotos.belongsTo(Encuestas, { foreignKey: 'encuesta_id', as: 'encuesta' });
+Encuestas.hasMany(EncuestaVotos, { foreignKey: 'encuesta_id', as: 'votos' });
+EncuestaVotos.belongsTo(EncuestaOpciones, { foreignKey: 'encuesta_opcion_id', as: 'opcion' });
+EncuestaOpciones.hasMany(EncuestaVotos, { foreignKey: 'encuesta_opcion_id', as: 'votos' });
+EncuestaVotos.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+User.hasMany(EncuestaVotos, { foreignKey: 'usuario_id', as: 'votosEncuesta' });
 
 // ============================================
 // EXPORTAR SEQUELIZE Y TODOS LOS MODELOS
@@ -494,6 +674,32 @@ export {
   PublicacionEtiquetas,
   Seguidores,
   Notificaciones,
-  DispositivosPush
+  DispositivosPush,
+
+  // Clubes
+  Clubs,
+  ClubDivisiones,
+  ClubSolicitudes,
+  ClubMembresiaSolicitudes,
+  ClubMiembros,
+  ClubAnuncios,
+  ClubDestacados,
+  ClubDestacadoItems,
+  ClubEventos,
+  ClubEventoConfirmaciones,
+  ClubEventoAsistencias,
+  ClubDivisionAtletas,
+  ClubDivisionInvitaciones,
+  ClubMetricaEvaluacion,
+  ClubEventoEvaluacion,
+  ClubEventoEvaluacionDetalle,
+
+  // Interacciones sociales
+  ContenidoReacciones,
+  ContenidoComentarios,
+  ContenidoReportes,
+  Encuestas,
+  EncuestaOpciones,
+  EncuestaVotos,
 };
 

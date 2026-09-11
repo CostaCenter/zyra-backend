@@ -5,6 +5,7 @@ import {
   obtenerConteoNoLeidas,
   marcarLeida,
   marcarTodasLeidasHandler,
+  marcarVistaBandejaHandler,
   eliminarNotificacionHandler,
 } from '../controllers/notificacionesController.js';
 
@@ -12,6 +13,7 @@ const router = Router();
 
 router.get('/', verifyToken, listarNotificaciones);
 router.get('/no-leidas', verifyToken, obtenerConteoNoLeidas);
+router.put('/vista-bandeja', verifyToken, marcarVistaBandejaHandler);
 router.put('/marcar-todas-leidas', verifyToken, marcarTodasLeidasHandler);
 router.put('/:id/leida', verifyToken, marcarLeida);
 router.delete('/:id', verifyToken, eliminarNotificacionHandler);

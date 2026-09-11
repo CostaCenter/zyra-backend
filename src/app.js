@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import { sequelize } from './db/db.js';
 import { seedProductionIfEmpty } from './utils/seedProductionIfEmpty.js';
 import { resetPgSequences } from './utils/resetPgSequences.js';
-import { initPartidoSocket } from './socket/partidoSocket.js';
+import { initPartidoSocket, getSocketStatus } from './socket/partidoSocket.js';
 import authRoutes from './routes/authRoutes.js';
 import complexRoutes from './routes/complexRoutes.js';
 import courtRoutes from './routes/courtRoutes.js';
@@ -27,6 +27,8 @@ import seguidoresRoutes from './routes/seguidoresRoutes.js';
 import notificacionesRoutes from './routes/notificacionesRoutes.js';
 import dispositivosPushRoutes from './routes/dispositivosPushRoutes.js';
 import buscarRoutes from './routes/buscarRoutes.js';
+import clubsRoutes from './routes/clubsRoutes.js';
+import interaccionSocialRoutes from './routes/interaccionSocialRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,10 +54,16 @@ app.get('/health/data', async (req, res) => {
       torneos: torneos[0].n,
       seedFlag: process.env.SEED_PRODUCTION_DATA === 'true',
       railway: Boolean(process.env.RAILWAY_ENVIRONMENT),
+      socket: getSocketStatus(),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+app.get('/health/socket', (req, res) => {
+  const status = getSocketStatus();
+  res.status(status.ready ? 200 : 503).json({ ok: status.ready, ...status });
 });
 
 app.use('/auth', authRoutes);
@@ -79,6 +87,8 @@ app.use('/api/seguidores', seguidoresRoutes);
 app.use('/api/notificaciones', notificacionesRoutes);
 app.use('/api/dispositivos-push', dispositivosPushRoutes);
 app.use('/api/buscar', buscarRoutes);
+app.use('/api/clubs', clubsRoutes);
+app.use('/api/interacciones', interaccionSocialRoutes);
 
 const server = http.createServer(app);
 initPartidoSocket(server);
@@ -91,11 +101,14 @@ seedProductionIfEmpty()
     }
   })
   .then(() => sequelize.sync({ force: false }))
-  .then(() => {
+  .then(async () => {
+    const [dbRow] = await sequelize.query('SELECT current_database() AS name');
+    const dbName = dbRow?.[0]?.name ?? 'desconocida';
+    console.log(`🗄️  PostgreSQL: ${dbName}`);
     console.log('✅ Base de datos sincronizada y modelos de Zyra cargados');
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
-      console.log('📡 Socket.io activo para marcador en vivo');
+      console.log('📡 Socket.io activo en /socket.io (websocket + polling)');
     });
   })
   .catch((err) => {

@@ -7,6 +7,7 @@ import {
   Team,
   TeamMiembros,
   User,
+  ClubDivisionAtletas,
   sequelize
 } from '../db/db.js';
 import {
@@ -24,6 +25,7 @@ import {
   cargarAlineacionesPorSet,
 } from '../services/alineacionPorSetService.js';
 import { notificarMarcadorEnVivo } from '../services/marcadorEnVivoNotifyService.js';
+import { esPracticaInterna } from '../services/partidoAmistosoService.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -89,7 +91,15 @@ export const proponerNomina = async (req, res) => {
     }
 
     const partido = await Partidos.findByPk(partidoId, {
-      attributes: ['id', 'state', 'equipo_que_saca_inicial', 'torneo_id', 'fase_torneo_id', 'arbitro_asignado_id']
+      attributes: [
+        'id',
+        'state',
+        'equipo_que_saca_inicial',
+        'torneo_id',
+        'fase_torneo_id',
+        'arbitro_asignado_id',
+        'club_division_id',
+      ]
     });
     if (!partido) {
       return res.status(404).json({
@@ -160,17 +170,42 @@ export const proponerNomina = async (req, res) => {
       });
     }
 
-    if (equipo.capitan_id !== req.userId) {
+    const participantesPartido = await PartidoParticipantes.findAll({
+      where: { partido_id: partidoId },
+      attributes: ['id', 'team_id', 'es_local'],
+    });
+
+    const practicaInterna = esPracticaInterna(participantesPartido);
+    const esArbitro = partido.arbitro_asignado_id === req.userId;
+
+    // Torneo / amistoso normal: solo capitán. Práctica/fogueo: capitán o árbitro (entrenador).
+    if (practicaInterna) {
+      if (!esArbitro && equipo.capitan_id !== req.userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el entrenador (árbitro) o el capitán puede configurar la nómina',
+        });
+      }
+    } else if (equipo.capitan_id !== req.userId) {
       return res.status(403).json({
         success: false,
         message: 'Solo el capitán del equipo puede enviar la alineación'
       });
     }
 
-    const participacion = await PartidoParticipantes.findOne({
-      where: { partido_id: partidoId, team_id: teamId },
-      attributes: ['id', 'es_local']
-    });
+    let participacion;
+    if (practicaInterna) {
+      const esLocalBody = req.body?.es_local;
+      if (esLocalBody !== true && esLocalBody !== false) {
+        return res.status(400).json({
+          success: false,
+          message: 'es_local es obligatorio (true/false) en partidos de práctica interna',
+        });
+      }
+      participacion = participantesPartido.find((p) => p.es_local === esLocalBody);
+    } else {
+      participacion = participantesPartido.find((p) => p.team_id === teamId);
+    }
 
     if (!participacion) {
       return res.status(400).json({
@@ -178,6 +213,17 @@ export const proponerNomina = async (req, res) => {
         message: 'El equipo no participa en este partido'
       });
     }
+
+    if (!practicaInterna && participacion.team_id !== teamId) {
+      return res.status(400).json({
+        success: false,
+        message: 'El equipo no participa en este partido'
+      });
+    }
+
+    const esLocalBando = participacion.es_local;
+    // En fogueo el entrenador confirma al armar: sin paso "enviar al árbitro".
+    const autoValidar = practicaInterna && esArbitro;
 
     const jugadores = req.body?.jugadores;
     const validacionAlineacion = validarPayloadAlineacionUnificada(jugadores);
@@ -213,34 +259,64 @@ export const proponerNomina = async (req, res) => {
     }
 
     const userIds = jugadores.map((j) => parseId(j.user_id));
-    const miembros = await TeamMiembros.findAll({
-      where: { team_id: teamId, user_id: userIds },
-      attributes: ['user_id', 'estado_invitacion']
-    });
-    const miembrosMap = new Map(miembros.map((m) => [m.user_id, m.estado_invitacion]));
-    const noMiembros = userIds.filter((uid) => !miembrosMap.has(uid));
-    const noAceptados = userIds.filter(
-      (uid) => miembrosMap.has(uid) && miembrosMap.get(uid) !== 'ACEPTADO'
-    );
 
-    if (noMiembros.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Los siguientes user_id no pertenecen al equipo: ${noMiembros.join(', ')}`
+    if (practicaInterna) {
+      // Fogueo: atletas de división / ya en el partido; no exige TeamMiembros.
+      const permitidos = new Set();
+
+      const yaEnPartido = await PartidoNominas.findAll({
+        where: { partido_id: partidoId, user_id: userIds },
+        attributes: ['user_id'],
       });
+      yaEnPartido.forEach((n) => permitidos.add(n.user_id));
+
+      if (partido.club_division_id) {
+        const atletas = await ClubDivisionAtletas.findAll({
+          where: {
+            club_division_id: partido.club_division_id,
+            usuario_id: userIds,
+          },
+          attributes: ['usuario_id'],
+        });
+        atletas.forEach((a) => permitidos.add(a.usuario_id));
+      }
+
+      const noPermitidos = userIds.filter((uid) => !permitidos.has(uid));
+      if (noPermitidos.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Los siguientes jugadores no están en la división ni en el fogueo: ${noPermitidos.join(', ')}`,
+        });
+      }
+    } else {
+      const miembros = await TeamMiembros.findAll({
+        where: { team_id: teamId, user_id: userIds },
+        attributes: ['user_id', 'estado_invitacion']
+      });
+      const miembrosMap = new Map(miembros.map((m) => [m.user_id, m.estado_invitacion]));
+      const noMiembros = userIds.filter((uid) => !miembrosMap.has(uid));
+      const noAceptados = userIds.filter(
+        (uid) => miembrosMap.has(uid) && miembrosMap.get(uid) !== 'ACEPTADO'
+      );
+
+      if (noMiembros.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Los siguientes user_id no pertenecen al equipo: ${noMiembros.join(', ')}`
+        });
+      }
+
+      if (noAceptados.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Los siguientes user_id no tienen invitación aceptada en el equipo: ${noAceptados.join(', ')}`
+        });
+      }
     }
 
-    if (noAceptados.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Los siguientes user_id no tienen invitación aceptada en el equipo: ${noAceptados.join(', ')}`
-      });
-    }
-
-    const validacionMaxJugadores = await validarMaxJugadoresEquipoTorneo(
-      partido.torneo_id,
-      jugadores.length
-    );
+    const validacionMaxJugadores = partido.torneo_id
+      ? await validarMaxJugadoresEquipoTorneo(partido.torneo_id, jugadores.length)
+      : { ok: true };
     if (!validacionMaxJugadores.ok) {
       return res.status(400).json({
         success: false,
@@ -248,10 +324,9 @@ export const proponerNomina = async (req, res) => {
       });
     }
 
-    const validacionEliminatorias = await validarElegibilidadEliminatorias(
-      partido,
-      userIds
-    );
+    const validacionEliminatorias = partido.torneo_id
+      ? await validarElegibilidadEliminatorias(partido, userIds)
+      : { ok: true };
     if (!validacionEliminatorias.ok) {
       return res.status(400).json({
         success: false,
@@ -259,8 +334,37 @@ export const proponerNomina = async (req, res) => {
       });
     }
 
+    if (practicaInterna) {
+      const nominasOtroBando = await PartidoNominas.findAll({
+        where: {
+          partido_id: partidoId,
+          team_id: teamId,
+          set_numero: setNumero,
+          es_local: !esLocalBando,
+        },
+        attributes: ['user_id'],
+      });
+      const idsOtroBando = new Set(nominasOtroBando.map((n) => n.user_id));
+      const solapados = userIds.filter((uid) => idsOtroBando.has(uid));
+      if (solapados.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Jugadores ya seleccionados en el otro bando: ${solapados.join(', ')}`,
+        });
+      }
+    }
+
+    const whereNominasExistentes = {
+      partido_id: partidoId,
+      team_id: teamId,
+      set_numero: setNumero,
+    };
+    if (practicaInterna) {
+      whereNominasExistentes.es_local = esLocalBando;
+    }
+
     const nominasExistentes = await PartidoNominas.findAll({
-      where: { partido_id: partidoId, team_id: teamId, set_numero: setNumero },
+      where: whereNominasExistentes,
       attributes: ['id', 'estado_validacion'],
     });
 
@@ -281,12 +385,13 @@ export const proponerNomina = async (req, res) => {
     const nominasCreadas = await sequelize.transaction(async (transaction) => {
       if (nominasExistentes.length > 0) {
         await PartidoNominas.destroy({
-          where: { partido_id: partidoId, team_id: teamId, set_numero: setNumero },
+          where: whereNominasExistentes,
           transaction
         });
       }
 
       const creadas = [];
+      const ahora = new Date();
 
       for (const jugador of jugadores) {
         const zona = jugador.rol_nomina === 'TITULAR'
@@ -302,30 +407,109 @@ export const proponerNomina = async (req, res) => {
             rol_nomina: jugador.rol_nomina,
             zona,
             set_numero: setNumero,
+            es_local: practicaInterna ? esLocalBando : null,
             propuesto_por_id: req.userId,
-            estado_validacion: 'PENDIENTE'
+            estado_validacion: autoValidar ? 'VALIDADO' : 'PENDIENTE',
+            ...(autoValidar
+              ? {
+                  validado_por_id: req.userId,
+                  validado_at: ahora,
+                }
+              : {}),
           },
           { transaction }
         );
         creadas.push(nomina);
       }
 
+      if (autoValidar) {
+        const arrayAlineacion = construirArrayAlineacionDesdeNominas(creadas);
+        if (!arrayAlineacion) {
+          throw Object.assign(new Error('ALINEACION_INCOMPLETA'), { code: 'ALINEACION_INCOMPLETA' });
+        }
+
+        const campoAlineacion = esLocalBando === true
+          ? 'alineacion_local'
+          : 'alineacion_visitante';
+
+        await partido.update(
+          { [campoAlineacion]: arrayAlineacion },
+          { transaction }
+        );
+
+        const alineacionesPorSet = await cargarAlineacionesPorSet(partidoId, transaction);
+        if (alineacionSetCompleta(alineacionesPorSet, setNumero)) {
+          const marcador = await MarcadoresDetalle.findOne({
+            where: { partido_id: partidoId },
+            transaction,
+          });
+          if (marcador) {
+            const actualizacion = aplicarAlineacionConfirmadaAlMarcador({
+              marcadorRow: marcador,
+              partidoRow: partido,
+              alineacionesPorSet,
+              setNumero,
+            });
+            if (actualizacion) {
+              await marcador.update(
+                {
+                  posiciones_actuales: actualizacion.posiciones_actuales,
+                  equipo_que_saca: actualizacion.equipo_que_saca,
+                  metrica_estructura: actualizacion.metrica_estructura,
+                  actualizado_en: new Date(),
+                },
+                { transaction }
+              );
+            }
+          }
+        }
+      }
+
       return creadas;
     });
 
-    await notificarNominaPropuesta({
-      partidoId,
-      arbitroId: partido.arbitro_asignado_id,
-      equipo,
-      setNumero,
-    });
+    if (!practicaInterna) {
+      await notificarNominaPropuesta({
+        partidoId,
+        arbitroId: partido.arbitro_asignado_id,
+        equipo,
+        setNumero,
+      });
+    }
+
+    if (autoValidar) {
+      const marcadorActualizado = await MarcadoresDetalle.findOne({
+        where: { partido_id: partidoId },
+      });
+      if (marcadorActualizado) {
+        await notificarMarcadorEnVivo(partidoId, {
+          marcador: marcadorActualizado,
+          partido,
+        });
+      }
+    }
 
     return res.status(201).json({
       success: true,
-      message: 'Alineación enviada al árbitro',
-      data: nominasCreadas.map((n) => n.toJSON())
+      message: autoValidar
+        ? `Nómina del set ${setNumero} confirmada`
+        : 'Alineación enviada al árbitro',
+      data: nominasCreadas.map((n) => n.toJSON()),
+      ...(autoValidar
+        ? {
+            marcador: (await MarcadoresDetalle.findOne({
+              where: { partido_id: partidoId },
+            }))?.toJSON?.() ?? null,
+          }
+        : {}),
     });
   } catch (error) {
+    if (error?.code === 'ALINEACION_INCOMPLETA') {
+      return res.status(400).json({
+        success: false,
+        message: 'La propuesta no incluye 6 titulares con zonas 1-6 completas',
+      });
+    }
     if (error instanceof UniqueConstraintError) {
       return res.status(409).json({
         success: false,
@@ -409,14 +593,33 @@ export const validarNomina = async (req, res) => {
       });
     }
 
-    const pendientes = await PartidoNominas.count({
-      where: {
-        partido_id: partidoId,
-        team_id: teamId,
-        set_numero: setNumero,
-        estado_validacion: 'PENDIENTE',
-      },
+    const participantesPartido = await PartidoParticipantes.findAll({
+      where: { partido_id: partidoId },
+      attributes: ['team_id', 'es_local'],
     });
+    const practicaInterna = esPracticaInterna(participantesPartido);
+
+    let esLocalBando = null;
+    if (practicaInterna) {
+      const esLocalBody = req.body?.es_local;
+      if (esLocalBody !== true && esLocalBody !== false) {
+        return res.status(400).json({
+          success: false,
+          message: 'es_local es obligatorio (true/false) en partidos de práctica interna',
+        });
+      }
+      esLocalBando = esLocalBody;
+    }
+
+    const wherePendientes = {
+      partido_id: partidoId,
+      team_id: teamId,
+      set_numero: setNumero,
+      estado_validacion: 'PENDIENTE',
+    };
+    if (practicaInterna) wherePendientes.es_local = esLocalBando;
+
+    const pendientes = await PartidoNominas.count({ where: wherePendientes });
 
     if (pendientes === 0) {
       return res.status(404).json({
@@ -427,13 +630,22 @@ export const validarNomina = async (req, res) => {
 
     const validadoAt = new Date();
 
-    const participacion = await PartidoParticipantes.findOne({
-      where: { partido_id: partidoId, team_id: teamId },
-      attributes: ['es_local'],
-    });
+    const participacion = practicaInterna
+      ? participantesPartido.find((p) => p.es_local === esLocalBando)
+      : await PartidoParticipantes.findOne({
+          where: { partido_id: partidoId, team_id: teamId },
+          attributes: ['es_local'],
+        });
+
+    const whereNominasEquipo = {
+      partido_id: partidoId,
+      team_id: teamId,
+      set_numero: setNumero,
+    };
+    if (practicaInterna) whereNominasEquipo.es_local = esLocalBando;
 
     const nominasEquipo = await PartidoNominas.findAll({
-      where: { partido_id: partidoId, team_id: teamId, set_numero: setNumero },
+      where: whereNominasEquipo,
       attributes: ['id', 'user_id', 'rol_nomina', 'zona', 'estado_validacion', 'set_numero'],
     });
 
@@ -463,7 +675,7 @@ export const validarNomina = async (req, res) => {
           validado_at: validadoAt,
         },
         {
-          where: { partido_id: partidoId, team_id: teamId, set_numero: setNumero },
+          where: whereNominasEquipo,
           transaction,
         }
       );

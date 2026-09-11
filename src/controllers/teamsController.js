@@ -9,11 +9,16 @@ import {
 } from '../db/db.js';
 import { obtenerEquiposDestacados } from '../services/destacadosService.js';
 import { notificarInvitacionEquipo, notificarRespuestaInvitacionEquipo } from '../services/notificacionesService.js';
+import { usuarioEstaEnNominaDivision, puedeGestionarDivision } from '../services/clubGestionService.js';
 import {
   listarEquiposConfirmadosUsuario,
   listarEquiposCapitanPorDeporte,
   obtenerPerfilPublicoEquipo,
 } from '../services/teamsService.js';
+import {
+  subirImagenPerfil,
+  formatearErrorCloudinary,
+} from '../services/cloudinaryService.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -46,7 +51,9 @@ const includeTeamDetalle = [
 ];
 
 const buscarEquipo = async (teamId) =>
-  Team.findByPk(teamId, { attributes: ['id', 'capitan_id', 'name', 'sport_id'] });
+  Team.findByPk(teamId, {
+    attributes: ['id', 'capitan_id', 'name', 'sport_id', 'club_id', 'club_division_id'],
+  });
 
 const usuarioTieneAccesoEquipo = async (teamId, userId) => {
   const equipo = await buscarEquipo(teamId);
@@ -151,7 +158,7 @@ export const getMisTeams = async (req, res) => {
  */
 export const createTeam = async (req, res) => {
   try {
-    const { name, sport_id, privado } = req.body;
+    const { name, sport_id, privado, categoria_edad, genero } = req.body;
 
     if (!name?.trim()) {
       return res.status(400).json({
@@ -176,6 +183,17 @@ export const createTeam = async (req, res) => {
       });
     }
 
+    const generosValidos = ['MASCULINO', 'FEMININO', 'MIXTO'];
+    const generoNormalizado = genero
+      ? String(genero).trim().toUpperCase()
+      : null;
+    if (generoNormalizado && !generosValidos.includes(generoNormalizado)) {
+      return res.status(400).json({
+        success: false,
+        message: 'genero debe ser MASCULINO, FEMENINO o MIXTO',
+      });
+    }
+
     const equipo = await sequelize.transaction(async (transaction) => {
       const team = await Team.create(
         {
@@ -183,6 +201,8 @@ export const createTeam = async (req, res) => {
           sport_id: sportId,
           capitan_id: req.userId,
           privado: privado ?? false,
+          categoria_edad: categoria_edad?.trim() || null,
+          genero: generoNormalizado,
           creado_at: new Date()
         },
         { transaction }
@@ -266,9 +286,21 @@ export const getTeamById = async (req, res) => {
       include: includeTeamDetalle
     });
 
+    const data = formatearEquipoDetalle(equipoCompleto);
+    if (data.club_id && data.club_division_id) {
+      const puedeGestionar = await puedeGestionarDivision(
+        data.club_id,
+        data.club_division_id,
+        req.userId,
+      );
+      data.permisos = {
+        puede_gestionar_plantilla: puedeGestionar || data.capitan_id === req.userId,
+      };
+    }
+
     return res.status(200).json({
       success: true,
-      data: formatearEquipoDetalle(equipoCompleto)
+      data,
     });
   } catch (error) {
     console.error('Error en getTeamById:', error);
@@ -321,6 +353,13 @@ export const invitarMiembroEquipo = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'Solo el capitán del equipo puede invitar miembros'
+      });
+    }
+
+    if (equipo.club_id && equipo.club_division_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Los equipos del club se gestionan asignando jugadores desde la nómina de la división',
       });
     }
 
@@ -457,6 +496,20 @@ export const responderInvitacionEquipo = async (req, res) => {
       });
     }
 
+    if (respuesta === 'ACEPTADO' && equipo.club_id && equipo.club_division_id) {
+      const enNomina = await usuarioEstaEnNominaDivision(
+        equipo.club_id,
+        equipo.club_division_id,
+        req.userId,
+      );
+      if (!enNomina) {
+        return res.status(400).json({
+          success: false,
+          message: 'Debes estar en la nómina de la división del club para unirte a este equipo',
+        });
+      }
+    }
+
     await membresia.update({
       estado_invitacion: respuesta,
       fecha_union: respuesta === 'ACEPTADO' ? new Date() : membresia.fecha_union
@@ -518,6 +571,53 @@ export const getPerfilPublicoEquipo = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al obtener el perfil del equipo',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * PUT /api/teams/:team_id/logo
+ * Sube logo del equipo (solo capitán).
+ */
+export const updateTeamLogo = async (req, res) => {
+  try {
+    const teamId = parseId(req.params.team_id);
+    if (!teamId) {
+      return res.status(400).json({ success: false, message: 'team_id inválido' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'La imagen logo es obligatoria' });
+    }
+
+    const equipo = await Team.findByPk(teamId, { attributes: ['id', 'capitan_id'] });
+    if (!equipo) {
+      return res.status(404).json({ success: false, message: 'Equipo no encontrado' });
+    }
+
+    if (equipo.capitan_id !== req.userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el capitán puede cambiar el logo del equipo',
+      });
+    }
+
+    const upload = await subirImagenPerfil(req.file, 'equipos');
+    await equipo.update({ logo_url: upload.secure_url });
+
+    const equipoCompleto = await Team.findByPk(teamId, { include: includeTeamDetalle });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logo del equipo actualizado',
+      data: formatearEquipoDetalle(equipoCompleto),
+    });
+  } catch (error) {
+    console.error('Error en updateTeamLogo:', error);
+    return res.status(500).json({
+      success: false,
+      message: formatearErrorCloudinary(error) || 'Error al subir logo del equipo',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }

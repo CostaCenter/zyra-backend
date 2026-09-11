@@ -11,6 +11,9 @@ const DUMP = path.join(
 );
 
 const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+const isLocalPostgres = ['localhost', '127.0.0.1', '::1'].includes(
+  (process.env.DB_HOST || '').trim().toLowerCase(),
+);
 
 function parseInsertStatements(sql) {
   return sql
@@ -40,8 +43,8 @@ export async function seedProductionIfEmpty() {
     return;
   }
 
-  const explicitSeed = process.env.SEED_PRODUCTION_DATA === 'true';
-  const autoSeedOnRailway = isRailway && fs.existsSync(DUMP);
+  const explicitSeed = process.env.SEED_PRODUCTION_DATA === 'true' && !isLocalPostgres;
+  const autoSeedOnRailway = isRailway && !isLocalPostgres && fs.existsSync(DUMP);
 
   if (!explicitSeed && !autoSeedOnRailway) {
     return;

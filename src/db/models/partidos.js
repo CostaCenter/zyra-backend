@@ -123,7 +123,17 @@ export default (sequelize) => {
     equipo_que_saca_inicial: {
       type: DataTypes.STRING(12),
       allowNull: true
-    }
+    },
+    programado_por_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Usuario que programó el partido (amistosos sin torneo)'
+    },
+    club_division_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'División ancla (prácticas / fogueos internos del club)'
+    },
   }, {
     tableName: 'partidos',
     timestamps: false

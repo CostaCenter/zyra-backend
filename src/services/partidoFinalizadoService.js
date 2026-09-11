@@ -12,10 +12,16 @@ import {
 } from './puntosPersonalesService.js';
 import { actualizarFuerzaEquipoEnDataTeam } from './fuerzaEquipoService.js';
 import { verificarYGenerarEliminatoriasTrasGrupos } from './generadorFixture.js';
+import { esPracticaInterna } from './partidoAmistosoService.js';
+import {
+  actualizarRatingEquiposPartido,
+  resolverResultadoPrincipalPartido,
+} from './ratingEquipoService.js';
 
 /**
  * Persiste stats de jugadores y actualiza fuerza/ELO al cerrar un partido.
  * Idempotente en stats; el rating solo se mueve en la primera finalización.
+ * Fogueos/prácticas internas (mismo team en ambos bandos) no afectan ELO ni fuerza.
  */
 export const procesarPartidoFinalizado = async (
   partidoId,
@@ -24,7 +30,7 @@ export const procesarPartidoFinalizado = async (
 ) => {
   const { actualizarRating = true } = options;
   const partido = await Partidos.findByPk(partidoId, {
-    attributes: ['id', 'state', 'sport_id', 'torneo_id'],
+    attributes: ['id', 'state', 'sport_id', 'torneo_id', 'club_division_id'],
     transaction,
   });
 
@@ -64,8 +70,17 @@ export const procesarPartidoFinalizado = async (
     transaction
   );
 
+  const participantes = await PartidoParticipantes.findAll({
+    where: { partido_id: partidoId },
+    attributes: ['team_id', 'es_local'],
+    transaction,
+  });
+
+  const esFogueoOPractica = esPracticaInterna(participantes)
+    || Boolean(partido.club_division_id && !partido.torneo_id);
+
   let rating = null;
-  if (actualizarRating) {
+  if (actualizarRating && !esFogueoOPractica) {
     rating = await actualizarRatingEquiposPartido(
       partidoId,
       resultadoPrincipal,
@@ -73,21 +88,17 @@ export const procesarPartidoFinalizado = async (
     );
   }
 
-  const participantes = await PartidoParticipantes.findAll({
-    where: { partido_id: partidoId },
-    attributes: ['team_id'],
-    transaction,
-  });
-
   const teamIds = [...new Set(participantes.map((p) => p.team_id).filter(Boolean))];
   const fuerzas = {};
 
-  for (const teamId of teamIds) {
-    fuerzas[teamId] = await actualizarFuerzaEquipoEnDataTeam(
-      teamId,
-      sportId,
-      transaction
-    );
+  if (!esFogueoOPractica) {
+    for (const teamId of teamIds) {
+      fuerzas[teamId] = await actualizarFuerzaEquipoEnDataTeam(
+        teamId,
+        sportId,
+        transaction
+      );
+    }
   }
 
   let eliminatorias = null;
@@ -100,6 +111,7 @@ export const procesarPartidoFinalizado = async (
     partido_id: partidoId,
     sport_id: sportId,
     jugadores_procesados: statsPayloads.length,
+    es_practica_interna: esFogueoOPractica,
     rating,
     fuerzas,
     eliminatorias,

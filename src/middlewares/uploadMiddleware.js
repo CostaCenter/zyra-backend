@@ -47,6 +47,13 @@ export const uploadTorneoPhoto = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 }).single('photo');
 
+/** Imagen opcional en comunicados de club. */
+export const uploadAnuncioImagen = multer({
+  storage,
+  fileFilter: imageOnlyFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single('imagen');
+
 /** Avatar de usuario — mismas reglas que foto de torneo. */
 export const uploadUsuarioPhoto = uploadTorneoPhoto;
 

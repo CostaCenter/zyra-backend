@@ -10,6 +10,7 @@ import {
   Partidos,
   PartidoParticipantes,
   TeamMiembros,
+  Team,
   Canchas,
   sequelize
 } from '../db/db.js';
@@ -49,6 +50,15 @@ export const serializarPublicacion = (publicacion) => {
     media_height: json.media_height ?? null,
     caption: json.caption,
     creado_at: json.creado_at,
+    publicado_como: json.publicado_como ?? 'USUARIO',
+    equipo_id: json.equipo_id ?? null,
+    equipo: json.equipo
+      ? {
+          id: json.equipo.id,
+          name: json.equipo.name,
+          logo_url: json.equipo.logo_url ?? null,
+        }
+      : null,
     autor: autorRaw
       ? {
           id: autorRaw.id,
@@ -171,6 +181,12 @@ export const obtenerDeportesUsuario = async (userId) => {
 
 const includesPublicacionDeportes = [
   {
+    model: Team,
+    as: 'equipo',
+    attributes: ['id', 'name', 'logo_url'],
+    required: false,
+  },
+  {
     model: PublicacionDeportes,
     as: 'deportes',
     required: false,
@@ -190,7 +206,10 @@ const includesPublicacionDeportes = [
 
 export const listarPublicacionesFiltradas = async (userId, sportId) => {
   const publicaciones = await Publicaciones.findAll({
-    where: { user_id: userId },
+    where: {
+      user_id: userId,
+      equipo_id: null,
+    },
     include: [
       {
         model: User,
@@ -225,13 +244,31 @@ const filtrarPublicacionesPorDeporte = (publicaciones, sportId) => {
   });
 };
 
-/** Publicaciones de miembros aceptados del equipo (propias + donde fueron etiquetados). */
-export const listarPublicacionesDeEquipo = async (memberIds, sportId) => {
-  if (!memberIds.length) return [];
+/** Publicaciones de miembros aceptados del equipo + publicaciones como equipo. */
+export const listarPublicacionesDeEquipo = async (teamId, memberIds, sportId) => {
+  const wherePropias = memberIds.length
+    ? { user_id: { [Op.in]: memberIds } }
+    : null;
 
-  const [propias, etiquetas] = await Promise.all([
+  const [propias, comoEquipo, etiquetas] = await Promise.all([
+    wherePropias
+      ? Publicaciones.findAll({
+          where: wherePropias,
+          include: [
+            {
+              model: User,
+              as: 'autor',
+              attributes: ['id', 'nick', 'name', 'photo'],
+              required: false,
+            },
+            ...includesPublicacionDeportes,
+          ],
+          order: [['creado_at', 'DESC']],
+          limit: 80,
+        })
+      : [],
     Publicaciones.findAll({
-      where: { user_id: { [Op.in]: memberIds } },
+      where: { equipo_id: teamId },
       include: [
         {
           model: User,
@@ -244,22 +281,24 @@ export const listarPublicacionesDeEquipo = async (memberIds, sportId) => {
       order: [['creado_at', 'DESC']],
       limit: 80,
     }),
-    PublicacionEtiquetas.findAll({
-      where: { user_id_etiquetado: { [Op.in]: memberIds }, confirmado: true },
-      include: [{
-        model: Publicaciones,
-        as: 'publicacion',
-        include: [
-          {
-            model: User,
-            as: 'autor',
-            attributes: ['id', 'nick', 'name', 'photo'],
-            required: false,
-          },
-          ...includesPublicacionDeportes,
-        ],
-      }],
-    }),
+    memberIds.length
+      ? PublicacionEtiquetas.findAll({
+          where: { user_id_etiquetado: { [Op.in]: memberIds }, confirmado: true },
+          include: [{
+            model: Publicaciones,
+            as: 'publicacion',
+            include: [
+              {
+                model: User,
+                as: 'autor',
+                attributes: ['id', 'nick', 'name', 'photo'],
+                required: false,
+              },
+              ...includesPublicacionDeportes,
+            ],
+          }],
+        })
+      : [],
   ]);
 
   const unicas = [];
@@ -271,6 +310,7 @@ export const listarPublicacionesDeEquipo = async (memberIds, sportId) => {
   };
 
   propias.forEach(agregar);
+  comoEquipo.forEach(agregar);
   etiquetas.forEach((row) => agregar(row.publicacion));
 
   unicas.sort((a, b) => new Date(b.creado_at) - new Date(a.creado_at));
@@ -382,16 +422,35 @@ export const crearPublicacionConRelaciones = async ({
   sportIds,
   etiquetados,
   mediaWidth = null,
-  mediaHeight = null
+  mediaHeight = null,
+  publicadoComo = 'USUARIO',
+  equipoId = null,
 }) => {
+  const publicadoComoNormalizado = publicadoComo === 'EQUIPO' ? 'EQUIPO' : 'USUARIO';
+
   return sequelize.transaction(async (transaction) => {
+    if (equipoId) {
+      const team = await Team.findByPk(equipoId, { transaction });
+      if (!team) {
+        throw Object.assign(new Error('Equipo no encontrado'), { statusCode: 404 });
+      }
+      if (Number(team.capitan_id) !== Number(userId)) {
+        throw Object.assign(
+          new Error('Solo el capitán puede publicar en el perfil del equipo'),
+          { statusCode: 403 },
+        );
+      }
+    }
+
     const publicacion = await Publicaciones.create({
       user_id: userId,
       tipo,
       url_media: urlMedia,
       caption: caption || null,
       media_width: mediaWidth,
-      media_height: mediaHeight
+      media_height: mediaHeight,
+      publicado_como: publicadoComoNormalizado,
+      equipo_id: equipoId || null,
     }, { transaction });
 
     if (sportIds.length > 0) {

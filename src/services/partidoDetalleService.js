@@ -24,6 +24,7 @@ import {
   resolverSportIdPartido,
 } from './puntosPersonalesService.js';
 import { construirHistorialSustitucionesSet, construirListaCambiosPartido } from './sustitucionesVoleyService.js';
+import { esPracticaInterna } from './partidoAmistosoService.js';
 
 const REGLAS_VOLEY_DEFAULT = {
   puntos_por_set: 25,
@@ -323,6 +324,11 @@ export const obtenerDetalleMarcadorPartido = async (partidoId) => {
   const participantes = partidoJson.participantes ?? [];
   const local = participantes.find((p) => p.es_local === true);
   const visitante = participantes.find((p) => p.es_local === false);
+  const practicaInterna = esPracticaInterna(
+    participantes.map((p) => ({ team_id: p.team_id ?? p.equipo?.id })),
+  );
+  const nombreLocal = practicaInterna ? 'Equipo A' : (local?.equipo?.name ?? null);
+  const nombreVisitante = practicaInterna ? 'Equipo B' : (visitante?.equipo?.name ?? null);
 
   let torneo = null;
   if (partidoJson.torneo_id) {
@@ -410,23 +416,24 @@ export const obtenerDetalleMarcadorPartido = async (partidoId) => {
       equipo_local: local?.equipo
         ? {
             id: local.equipo.id,
-            name: local.equipo.name,
-            logo_url: local.equipo.logo_url,
+            name: nombreLocal,
+            logo_url: practicaInterna ? null : local.equipo.logo_url,
             capitan_id: local.equipo.capitan_id,
           }
         : null,
       equipo_visitante: visitante?.equipo
         ? {
             id: visitante.equipo.id,
-            name: visitante.equipo.name,
-            logo_url: visitante.equipo.logo_url,
+            name: nombreVisitante,
+            logo_url: practicaInterna ? null : visitante.equipo.logo_url,
             capitan_id: visitante.equipo.capitan_id,
           }
         : null,
       equipo_local_id: local?.equipo?.id ?? null,
-      equipo_local_nombre: local?.equipo?.name ?? null,
+      equipo_local_nombre: nombreLocal,
       equipo_visitante_id: visitante?.equipo?.id ?? null,
-      equipo_visitante_nombre: visitante?.equipo?.name ?? null,
+      equipo_visitante_nombre: nombreVisitante,
+      es_practica_interna: practicaInterna,
       alineacion_local: partidoJson.alineacion_local ?? null,
       alineacion_visitante: partidoJson.alineacion_visitante ?? null,
       equipo_que_saca_inicial: partidoJson.equipo_que_saca_inicial ?? null,

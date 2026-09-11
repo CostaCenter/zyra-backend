@@ -3,6 +3,7 @@ import {
   contarNoLeidas,
   marcarNotificacionLeida,
   marcarTodasLeidas,
+  marcarVistaBandeja,
   eliminarNotificacion,
   validarCategoriaFiltro,
 } from '../services/notificacionesService.js';
@@ -89,6 +90,22 @@ export const marcarLeida = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al marcar notificación como leída',
+    });
+  }
+};
+
+export const marcarVistaBandejaHandler = async (req, res) => {
+  try {
+    const noLeidas = await marcarVistaBandeja(req.userId);
+    return res.status(200).json({
+      success: true,
+      data: { no_leidas: noLeidas },
+    });
+  } catch (error) {
+    console.error('Error en marcarVistaBandeja:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar el contador de notificaciones',
     });
   }
 };

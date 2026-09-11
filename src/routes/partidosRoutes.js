@@ -17,6 +17,7 @@ import {
   validarNomina,
   listarNominasPartido
 } from '../controllers/nominasController.js';
+import { crearPartidoAmistoso } from '../controllers/partidoAmistosoController.js';
 
 /**
  * Rutas de Partidos - Zyra
@@ -38,6 +39,7 @@ import {
 
 const router = express.Router();
 
+router.post('/amistoso', verifyToken, crearPartidoAmistoso);
 router.get('/mis-arbitrajes', verifyToken, getMisArbitrajes);
 router.get('/:partido_id/asignacion-arbitro', verifyToken, getAsignacionArbitroDetalle);
 router.get('/:id/marcador', verifyToken, getMarcadorPartido);
