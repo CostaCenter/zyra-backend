@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { sequelize } from './db/db.js';
 import { seedProductionIfEmpty } from './utils/seedProductionIfEmpty.js';
 import { resetPgSequences } from './utils/resetPgSequences.js';
+import { ensureClubSchema } from './utils/ensureClubSchema.js';
 import { initPartidoSocket, getSocketStatus } from './socket/partidoSocket.js';
 import authRoutes from './routes/authRoutes.js';
 import complexRoutes from './routes/complexRoutes.js';
@@ -101,6 +102,7 @@ seedProductionIfEmpty()
     }
   })
   .then(() => sequelize.sync({ force: false }))
+  .then(() => ensureClubSchema(sequelize))
   .then(async () => {
     const [dbRow] = await sequelize.query('SELECT current_database() AS name');
     const dbName = dbRow?.[0]?.name ?? 'desconocida';
