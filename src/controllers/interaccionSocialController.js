@@ -44,15 +44,10 @@ export const putReaccion = async (req, res) => {
       const result = await quitarReaccion(contenidoTipo, contenidoId, req.userId);
       if (!result.ok) return respondError(res, result);
 
-      // Resumen solo aplica a AVISO/PUBLICACION (no COMENTARIO)
-      let resumen = null;
-      if (!['COMENTARIO'].includes(String(contenidoTipo).toUpperCase())) {
-        const r = await obtenerResumenInteraccion(contenidoTipo, contenidoId, req.userId);
-        resumen = r.data;
-      }
+      // Responder al cliente sin esperar resumen completo (evita timeouts en prod).
       return res.status(200).json({
         success: true,
-        data: { ...result.data, resumen },
+        data: { ...result.data, resumen: null },
       });
     }
 
@@ -64,15 +59,9 @@ export const putReaccion = async (req, res) => {
     );
     if (!result.ok) return respondError(res, result);
 
-    let resumen = null;
-    if (!['COMENTARIO'].includes(String(contenidoTipo).toUpperCase())) {
-      const r = await obtenerResumenInteraccion(contenidoTipo, contenidoId, req.userId);
-      resumen = r.data;
-    }
-
     return res.status(200).json({
       success: true,
-      data: { ...result.data, resumen },
+      data: { ...result.data, resumen: null },
     });
   } catch (error) {
     console.error('Error en putReaccion:', error);

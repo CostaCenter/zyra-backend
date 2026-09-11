@@ -39,8 +39,14 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const BUILD_TAG = 'async-push-v2';
+
 app.get('/', (req, res) => {
-  res.json({ message: 'Zyra Backend API' });
+  res.json({
+    message: 'Zyra Backend API',
+    buildTag: BUILD_TAG,
+    gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
+  });
 });
 
 app.get('/health/data', async (req, res) => {
@@ -50,6 +56,8 @@ app.get('/health/data', async (req, res) => {
     const [torneos] = await sequelize.query('SELECT COUNT(*)::int AS n FROM torneos');
     res.json({
       ok: true,
+      buildTag: BUILD_TAG,
+      gitCommit: process.env.RAILWAY_GIT_COMMIT_SHA ?? null,
       sports: sports[0].n,
       users: users[0].n,
       torneos: torneos[0].n,
