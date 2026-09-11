@@ -16,6 +16,7 @@ import {
   notificarAsignacionArbitro,
   notificarRespuestaAsignacionArbitro,
 } from '../services/notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import {
   obtenerDetalleAsignacionArbitro,
   responderConfirmacionArbitro,
@@ -218,7 +219,7 @@ export const ejecutarDefinirEquipoQueSacaSet = async (partidoId, userId, equipo)
 
   await marcador.reload();
 
-  await notificarMarcadorEnVivo(partidoId, { marcador, partido });
+  scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId, { marcador, partido }));
 
   return {
     status: 200,
@@ -381,7 +382,7 @@ export const ejecutarInicioPartido = async (partidoId, userId, reglasOverride = 
 
   await partido.update({ state: 'EN_CURSO' });
 
-  await notificarMarcadorEnVivo(partidoId, { marcador, partido });
+  scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId, { marcador, partido }));
 
   return {
     status: 200,
@@ -461,11 +462,11 @@ export const asignarArbitroPartido = async (req, res) => {
         arbitro_confirmacion_estado: 'PENDIENTE',
       });
 
-      await notificarAsignacionArbitro({
+      scheduleSideEffect('asignacion-arbitro', () => notificarAsignacionArbitro({
         partidoId,
         arbitroId,
         torneo: { nombre: partido.name || 'Partido amistoso' },
-      });
+      }));
 
       const partidoActualizado = await Partidos.findByPk(partidoId, {
         include: includePartidoConArbitro
@@ -513,11 +514,11 @@ export const asignarArbitroPartido = async (req, res) => {
       attributes: ['id', 'nombre'],
     });
 
-    await notificarAsignacionArbitro({
+    scheduleSideEffect('asignacion-arbitro', () => notificarAsignacionArbitro({
       partidoId,
       arbitroId,
       torneo: torneoConNombre,
-    });
+    }));
 
     const partidoActualizado = await Partidos.findByPk(partidoId, {
       include: includePartidoConArbitro
@@ -601,14 +602,14 @@ export const confirmarAsignacionArbitro = async (req, res) => {
     const { arbitro, torneo, equipo_local, equipo_visitante } = resultado.data;
 
     if (torneo?.creado_por_user_id) {
-      await notificarRespuestaAsignacionArbitro({
+      scheduleSideEffect('respuesta-asignacion-arbitro', () => notificarRespuestaAsignacionArbitro({
         organizadorId: torneo.creado_por_user_id,
         arbitro,
         partidoId,
         nombreLocal: equipo_local,
         nombreVisitante: equipo_visitante,
         confirmado: respuesta === 'CONFIRMADO',
-      });
+      }));
     }
 
     return res.status(200).json({

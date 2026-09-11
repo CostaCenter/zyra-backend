@@ -10,6 +10,8 @@ import {
 
 } from '../services/notificacionesService.js';
 
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
+
 import {
 
   obtenerDetalleInvitacionCuerpoArbitral,
@@ -312,7 +314,7 @@ export const addArbitroTorneo = async (req, res) => {
 
 
 
-      await notificarInvitacionCuerpoArbitral({
+      scheduleSideEffect('invitacion-cuerpo-arbitral', () => notificarInvitacionCuerpoArbitral({
 
         registroId: existente.id,
 
@@ -322,7 +324,7 @@ export const addArbitroTorneo = async (req, res) => {
 
         organizador,
 
-      });
+      }));
 
 
 
@@ -376,7 +378,7 @@ export const addArbitroTorneo = async (req, res) => {
 
 
 
-    await notificarInvitacionCuerpoArbitral({
+    scheduleSideEffect('invitacion-cuerpo-arbitral', () => notificarInvitacionCuerpoArbitral({
 
       registroId: row.id,
 
@@ -386,7 +388,7 @@ export const addArbitroTorneo = async (req, res) => {
 
       organizador,
 
-    });
+    }));
 
 
 
@@ -586,7 +588,7 @@ export const responderInvitacionCuerpoArbitralController = async (req, res) => {
 
     if (organizadorId) {
 
-      await notificarRespuestaInvitacionCuerpoArbitral({
+      scheduleSideEffect('respuesta-cuerpo-arbitral', () => notificarRespuestaInvitacionCuerpoArbitral({
 
         organizadorId,
 
@@ -598,7 +600,7 @@ export const responderInvitacionCuerpoArbitralController = async (req, res) => {
 
         registroId,
 
-      });
+      }));
 
     }
 

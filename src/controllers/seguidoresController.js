@@ -5,6 +5,7 @@ import {
   Seguidores
 } from '../db/db.js';
 import { notificarNuevoSeguidor } from '../services/notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 
 /**
  * POST /api/seguidores
@@ -66,11 +67,11 @@ export const seguir = async (req, res) => {
     const seguidor = await Seguidores.create(where);
 
     if (tieneUsuario && seguidoUserId) {
-      await notificarNuevoSeguidor({
+      scheduleSideEffect('nuevo-seguidor', () => notificarNuevoSeguidor({
         seguidorId: req.userId,
         seguidoUserId,
         seguidorUser: req.user,
-      });
+      }));
     }
 
     return res.status(201).json({

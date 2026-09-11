@@ -17,6 +17,7 @@ import { procesarPartidoFinalizado } from './partidoFinalizadoService.js';
 import { evaluarYRecalcularHorarioTrasFinalizar } from './recalculoHorariosService.js';
 import { aplicarSaquePorSetAlEstado } from './saquePorSetService.js';
 import { notificarMarcadorEnVivo } from './marcadorEnVivoNotifyService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import {
   cargarAlineacionesPorSet,
   posicionesInicialesSet1,
@@ -183,8 +184,12 @@ export const aplicarCierrePartido = async (
   });
 
   if (!yaFinalizado) {
-    const { notificarResultadoPartido } = await import('./notificacionesService.js');
-    await notificarResultadoPartido(partidoId, transaction);
+    transaction.afterCommit(() => {
+      scheduleSideEffect('resultado-partido', async () => {
+        const { notificarResultadoPartido } = await import('./notificacionesService.js');
+        return notificarResultadoPartido(partidoId);
+      });
+    });
   }
 
   return {
@@ -231,11 +236,12 @@ const recalcularMarcadorEnTransaccion = async (partidoId, partido, marcador, reg
     pendienteAlineacion != null
     && pendienteAlineacion !== prevPendienteAlineacion
   ) {
-    const { notificarAlineacionPendienteSet } = await import('./notificacionesService.js');
-    await notificarAlineacionPendienteSet({
-      partidoId,
-      setNumero: pendienteAlineacion,
-      transaction,
+    const setNumero = pendienteAlineacion;
+    transaction.afterCommit(() => {
+      scheduleSideEffect('alineacion-pendiente-set', async () => {
+        const { notificarAlineacionPendienteSet } = await import('./notificacionesService.js');
+        return notificarAlineacionPendienteSet({ partidoId, setNumero });
+      });
     });
   }
 
@@ -432,11 +438,11 @@ export const ejecutarRegistrarPunto = async (partidoId, userId, body) => {
 
   await marcador.reload();
 
-  await notificarMarcadorEnVivo(partidoId, {
+  scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId, {
     marcador,
     partido,
     ultimoPunto: resultadoTransaccion.evento,
-  });
+  }));
 
   return {
     status: 200,
@@ -503,7 +509,7 @@ export const ejecutarDeshacerUltimoPunto = async (partidoId, userId) => {
 
   await marcador.reload();
 
-  await notificarMarcadorEnVivo(partidoId, { marcador, partido });
+  scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId, { marcador, partido }));
 
   return {
     status: 200,

@@ -15,6 +15,7 @@ import {
   sequelize
 } from '../db/db.js';
 import { notificarEtiquetaPendiente } from './notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 
 const parseJsonArray = (value) => {
   if (value === undefined || value === null || value === '') return [];
@@ -494,14 +495,16 @@ export const crearPublicacionConRelaciones = async ({
           { transaction, returning: true }
         );
 
-        for (const etiqueta of etiquetasCreadas) {
-          await notificarEtiquetaPendiente({
-            etiquetaId: etiqueta.id,
-            usuarioEtiquetadoId: etiqueta.user_id_etiquetado,
-            autor,
-            transaction,
-          });
-        }
+        const etiquetasParaNotificar = etiquetasCreadas.map((etiqueta) => ({
+          etiquetaId: etiqueta.id,
+          usuarioEtiquetadoId: etiqueta.user_id_etiquetado,
+          autor,
+        }));
+        transaction.afterCommit(() => {
+          for (const payload of etiquetasParaNotificar) {
+            scheduleSideEffect('etiqueta-pendiente', () => notificarEtiquetaPendiente(payload));
+          }
+        });
       }
     }
 

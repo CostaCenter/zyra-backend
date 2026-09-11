@@ -9,6 +9,7 @@ import {
 } from '../db/db.js';
 import { obtenerEquiposDestacados } from '../services/destacadosService.js';
 import { notificarInvitacionEquipo, notificarRespuestaInvitacionEquipo } from '../services/notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import { usuarioEstaEnNominaDivision, puedeGestionarDivision } from '../services/clubGestionService.js';
 import {
   listarEquiposConfirmadosUsuario,
@@ -410,12 +411,12 @@ export const invitarMiembroEquipo = async (req, res) => {
       include: includeMiembros
     });
 
-    await notificarInvitacionEquipo({
+    scheduleSideEffect('invitacion-equipo', () => notificarInvitacionEquipo({
       membresiaId: membresia.id,
       usuarioInvitadoId: userIdInvitado,
       capitan: req.user,
       equipo,
-    });
+    }));
 
     return res.status(reinvitacion ? 200 : 201).json({
       success: true,
@@ -516,13 +517,13 @@ export const responderInvitacionEquipo = async (req, res) => {
     });
 
     if (equipo.capitan_id && equipo.capitan_id !== req.userId) {
-      await notificarRespuestaInvitacionEquipo({
+      scheduleSideEffect('respuesta-invitacion-equipo', () => notificarRespuestaInvitacionEquipo({
         capitanId: equipo.capitan_id,
         jugador: membresia.usuario ?? { id: req.userId },
         equipo,
         aceptado: respuesta === 'ACEPTADO',
         membresiaId: miembroId,
-      });
+      }));
     }
 
     return res.status(200).json({

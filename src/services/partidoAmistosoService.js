@@ -1,5 +1,6 @@
 import { sequelize, Partidos, PartidoParticipantes, Team, User, Sports } from '../db/db.js';
 import { notificarAsignacionArbitro } from './notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -103,11 +104,11 @@ export const crearPartidoAmistoso = async ({
   });
 
   if (arbitroId) {
-    await notificarAsignacionArbitro({
+    scheduleSideEffect('asignacion-arbitro-amistoso', () => notificarAsignacionArbitro({
       partidoId: partido.id,
       arbitroId: parseId(arbitroId),
       torneo: { nombre: nombrePartido },
-    });
+    }));
   }
 
   return {

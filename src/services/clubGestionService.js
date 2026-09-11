@@ -44,6 +44,7 @@ import {
   notificarMembresiaClubAceptada,
   notificarMembresiaClubRechazada,
 } from './notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import {
   crearEncuesta,
   enriquecerInteraccionesBatch,
@@ -2034,13 +2035,16 @@ export const responderInvitacionDivision = async ({
       }
     }
 
-    await notificarRespuestaInvitacionClubDivision({
+    const notifPayload = {
       invitadorId: invitacion.invitado_por_id,
       jugador: invitacion.invitado,
       division,
       aceptada: respuestaNorm === 'ACEPTADA',
       invitacionId: invitacion.id,
-      transaction,
+    };
+    transaction.afterCommit(() => {
+      scheduleSideEffect('respuesta-invitacion-club-division', () =>
+        notificarRespuestaInvitacionClubDivision(notifPayload));
     });
 
     return invitacion;
@@ -2549,19 +2553,20 @@ export const finalizarEventoEntrenamiento = async ({
     }
 
     const { notificarEntrenamientoFinalizado } = await import('./notificacionesService.js');
-    const enviadas = await notificarEntrenamientoFinalizado({
+    const destinatariosFinal = presentesIds.map((usuarioId) => ({
+      usuarioId,
+      promedio: promedioPorUser.get(usuarioId) ?? null,
+    }));
+    scheduleSideEffect('entrenamiento-finalizado', () => notificarEntrenamientoFinalizado({
       eventoId,
       clubNombre: evento.division?.club?.nombre,
       divisionNombre: evento.division?.nombre,
       scoreLocal,
       scoreVisitante,
       fogueoFinalizado,
-      destinatarios: presentesIds.map((usuarioId) => ({
-        usuarioId,
-        promedio: promedioPorUser.get(usuarioId) ?? null,
-      })),
-    });
-    notificacionesEnviadas = enviadas?.length ?? 0;
+      destinatarios: destinatariosFinal,
+    }));
+    notificacionesEnviadas = destinatariosFinal.length;
   }
 
   const resumenClub = await calcularResumenEntrenamientosClub(clubId);
@@ -3163,11 +3168,11 @@ export const solicitarMembresiaPorCodigo = async ({ codigo, userId, solicitante 
     ? solicitante
     : await User.findByPk(userId, { attributes: ['id', 'nick', 'name', 'photo'] });
 
-  await notificarSolicitudMembresiaClub({
+  scheduleSideEffect('solicitud-membresia-club', () => notificarSolicitudMembresiaClub({
     solicitudId: solicitud.id,
     club,
     solicitante: solicitanteRow ?? { id: userId },
-  });
+  }));
 
   const completa = await ClubMembresiaSolicitudes.findByPk(solicitud.id, {
     include: [
@@ -3309,18 +3314,18 @@ export const responderMembresiaSolicitud = async ({
   });
 
   if (estado === 'ACEPTADA') {
-    await notificarMembresiaClubAceptada({
+    scheduleSideEffect('membresia-club-aceptada', () => notificarMembresiaClubAceptada({
       solicitudId: solicitud.id,
       club: solicitud.club,
       usuarioId: solicitud.usuario_id,
       rolMembresia: rol,
-    });
+    }));
   } else {
-    await notificarMembresiaClubRechazada({
+    scheduleSideEffect('membresia-club-rechazada', () => notificarMembresiaClubRechazada({
       solicitudId: solicitud.id,
       club: solicitud.club,
       usuarioId: solicitud.usuario_id,
-    });
+    }));
   }
 
   const actualizada = await ClubMembresiaSolicitudes.findByPk(solicitud.id, {

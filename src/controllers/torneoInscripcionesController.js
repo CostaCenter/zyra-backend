@@ -18,6 +18,7 @@ import {
   notificarInscripcionRechazada,
   notificarRespuestaInvitacionTorneo,
 } from '../services/notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -146,11 +147,11 @@ export const solicitarInscripcion = async (req, res) => {
       include: includeInscripcion
     });
 
-    await notificarSolicitudInscripcion({
+    scheduleSideEffect('solicitud-inscripcion', () => notificarSolicitudInscripcion({
       inscripcionId: inscripcion.id,
       torneoId,
       equipo,
-    });
+    }));
 
     return res.status(201).json({
       success: true,
@@ -361,29 +362,29 @@ export const responderInscripcion = async (req, res) => {
 
     if (inscripcion.origen === 'SOLICITUD_EQUIPO' && inscripcion.equipo?.capitan_id) {
       if (respuesta === 'ACEPTADA') {
-        await notificarInscripcionAceptada({
+        scheduleSideEffect('inscripcion-aceptada', () => notificarInscripcionAceptada({
           inscripcionId: inscripcion.id,
           torneo,
           capitanId: inscripcion.equipo.capitan_id,
-        });
+        }));
       } else if (respuesta === 'RECHAZADA') {
-        await notificarInscripcionRechazada({
+        scheduleSideEffect('inscripcion-rechazada', () => notificarInscripcionRechazada({
           inscripcionId: inscripcion.id,
           torneo,
           capitanId: inscripcion.equipo.capitan_id,
-        });
+        }));
       }
     } else if (
       inscripcion.origen === 'INVITACION_TORNEO'
       && torneo.creado_por_user_id
     ) {
-      await notificarRespuestaInvitacionTorneo({
+      scheduleSideEffect('respuesta-invitacion-torneo', () => notificarRespuestaInvitacionTorneo({
         organizadorId: torneo.creado_por_user_id,
         equipo: inscripcion.equipo,
         torneo,
         aceptada: respuesta === 'ACEPTADA',
         inscripcionId: inscripcion.id,
-      });
+      }));
     }
 
     const inscripcionActualizada = await TorneoInscripcion.findByPk(inscripcion.id, {

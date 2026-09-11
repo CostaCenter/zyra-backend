@@ -26,6 +26,7 @@ import {
   notificarClubAceptada,
   notificarClubRechazada,
 } from '../services/notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import {
   crearDivisionDefault,
   asegurarMiembroClub,
@@ -361,12 +362,12 @@ export const solicitarUnionClub = async (req, res) => {
 
     const completa = await ClubSolicitudes.findByPk(solicitud.id, { include: includeSolicitud });
 
-    await notificarSolicitudClub({
+    scheduleSideEffect('solicitud-club', () => notificarSolicitudClub({
       solicitudId: solicitud.id,
       club,
       division: validacionDivision.division,
       equipo,
-    });
+    }));
 
     return res.status(201).json({
       success: true,
@@ -566,9 +567,17 @@ export const responderSolicitudClub = async (req, res) => {
 
     if (capitanId) {
       if (respuesta === 'ACEPTADA') {
-        await notificarClubAceptada({ solicitudId: solicitud.id, club, capitanId });
+        scheduleSideEffect('club-aceptada', () => notificarClubAceptada({
+          solicitudId: solicitud.id,
+          club,
+          capitanId,
+        }));
       } else {
-        await notificarClubRechazada({ solicitudId: solicitud.id, club, capitanId });
+        scheduleSideEffect('club-rechazada', () => notificarClubRechazada({
+          solicitudId: solicitud.id,
+          club,
+          capitanId,
+        }));
       }
     }
 

@@ -20,6 +20,7 @@ import {
   aplicarCierrePartido,
 } from '../services/eventosPartidoService.js';
 import { notificarMarcadorEnVivo } from '../services/marcadorEnVivoNotifyService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import { aplicarSaquePorSetAlEstado } from '../services/saquePorSetService.js';
 
 const DISPOSITIVO_SINTETICO_ID = '00000000-0000-0000-0000-000000000000';
@@ -238,7 +239,7 @@ export const ejecutarRegistrarSet = async (partidoId, userId, puntosLocal, punto
     );
   }
 
-  await notificarMarcadorEnVivo(partidoId);
+  scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId));
 
   return {
     status: 200,

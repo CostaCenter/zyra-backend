@@ -25,6 +25,7 @@ import {
   cargarAlineacionesPorSet,
 } from '../services/alineacionPorSetService.js';
 import { notificarMarcadorEnVivo } from '../services/marcadorEnVivoNotifyService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import { esPracticaInterna } from '../services/partidoAmistosoService.js';
 
 const parseId = (value) => {
@@ -469,12 +470,12 @@ export const proponerNomina = async (req, res) => {
     });
 
     if (!practicaInterna) {
-      await notificarNominaPropuesta({
+      scheduleSideEffect('nomina-propuesta', () => notificarNominaPropuesta({
         partidoId,
         arbitroId: partido.arbitro_asignado_id,
         equipo,
         setNumero,
-      });
+      }));
     }
 
     if (autoValidar) {
@@ -482,10 +483,10 @@ export const proponerNomina = async (req, res) => {
         where: { partido_id: partidoId },
       });
       if (marcadorActualizado) {
-        await notificarMarcadorEnVivo(partidoId, {
+        scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId, {
           marcador: marcadorActualizado,
           partido,
-        });
+        }));
       }
     }
 
@@ -733,10 +734,10 @@ export const validarNomina = async (req, res) => {
       where: { partido_id: partidoId },
     });
     if (marcadorActualizado) {
-      await notificarMarcadorEnVivo(partidoId, {
+      scheduleSideEffect('marcador-en-vivo', () => notificarMarcadorEnVivo(partidoId, {
         marcador: marcadorActualizado,
         partido,
-      });
+      }));
     }
 
     return res.status(200).json({
