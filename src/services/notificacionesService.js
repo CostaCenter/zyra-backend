@@ -75,9 +75,13 @@ async function publicarNotificacionEnVivo(notificacion, usuarioId) {
       no_leidas: noLeidas,
     });
 
-    await enviarPushNotificacionUsuario(usuarioId, {
+    // Nunca bloquear el request HTTP esperando Expo/FCM: si el push tarda o cuelga,
+    // el cliente aborta y muestra "Error de conexión" aunque el write ya se guardó.
+    void enviarPushNotificacionUsuario(usuarioId, {
       notificacion: notificacionSerializada,
       navegacion,
+    }).catch((error) => {
+      console.error('Error enviando push (async):', error);
     });
   } catch (error) {
     console.error('Error emitiendo nueva_notificacion:', error);
@@ -112,12 +116,17 @@ export async function crearNotificacion({
 
   if (!row) return null;
 
-  const publish = () => publicarNotificacionEnVivo(row, usuarioId);
+  // Publicar socket/push fuera del camino crítico de la respuesta HTTP.
+  const schedulePublish = () => {
+    void publicarNotificacionEnVivo(row, usuarioId).catch((error) => {
+      console.error('Error publicando notificación (async):', error);
+    });
+  };
 
   if (transaction) {
-    transaction.afterCommit(publish);
+    transaction.afterCommit(schedulePublish);
   } else {
-    await publish();
+    schedulePublish();
   }
 
   return row;

@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS clubs (
     creado_at       TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_clubs_sport ON clubs (sport_id);
-CREATE INDEX idx_clubs_admin ON clubs (admin_id);
+CREATE INDEX IF NOT EXISTS idx_clubs_sport ON clubs (sport_id);
+CREATE INDEX IF NOT EXISTS idx_clubs_admin ON clubs (admin_id);
 
 CREATE TABLE IF NOT EXISTS club_divisiones (
     id              SERIAL PRIMARY KEY,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS club_divisiones (
     CONSTRAINT chk_club_division_genero CHECK (genero IN ('MASCULINO', 'FEMENINO', 'MIXTO'))
 );
 
-CREATE INDEX idx_club_divisiones_club ON club_divisiones (club_id);
+CREATE INDEX IF NOT EXISTS idx_club_divisiones_club ON club_divisiones (club_id);
 
 CREATE TABLE IF NOT EXISTS club_solicitudes (
     id                  SERIAL PRIMARY KEY,
@@ -46,8 +46,8 @@ CREATE UNIQUE INDEX uq_club_equipo_activa
   ON club_solicitudes (club_id, equipo_id)
   WHERE estado IN ('PENDIENTE', 'ACEPTADA');
 
-CREATE INDEX idx_club_solicitudes_club ON club_solicitudes (club_id);
-CREATE INDEX idx_club_solicitudes_equipo ON club_solicitudes (equipo_id);
+CREATE INDEX IF NOT EXISTS idx_club_solicitudes_club ON club_solicitudes (club_id);
+CREATE INDEX IF NOT EXISTS idx_club_solicitudes_equipo ON club_solicitudes (equipo_id);
 
 ALTER TABLE "Team"
   ADD COLUMN IF NOT EXISTS club_id INTEGER REFERENCES clubs(id),
@@ -75,6 +75,7 @@ ALTER TABLE partidos
 ALTER TABLE partido_nominas
   ADD COLUMN IF NOT EXISTS es_local BOOLEAN;
 
+ALTER TABLE partido_nominas DROP CONSTRAINT IF EXISTS uq_partido_team_dorsal_bando_set;
 ALTER TABLE partido_nominas DROP CONSTRAINT IF EXISTS uq_partido_team_dorsal_set;
 
 ALTER TABLE partido_nominas

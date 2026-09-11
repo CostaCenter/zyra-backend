@@ -165,9 +165,14 @@ export const sincronizarMiembrosEquipoAlClub = async ({
 };
 
 export const usuarioEsEncargadoDivision = async (clubId, divisionId, userId) => {
-  if (!divisionId) return false;
+  if (!clubId || !divisionId || userId == null || userId === '') return false;
+  const encargadoId = Number(userId);
+  if (!Number.isFinite(encargadoId) || encargadoId <= 0) return false;
+
+  // IMPORTANTE: no pasar undefined/null a Sequelize (omite el predicado y podría
+  // devolver la división sin filtrar por encargado).
   const division = await ClubDivisiones.findOne({
-    where: { id: divisionId, club_id: clubId, encargado_id: userId },
+    where: { id: divisionId, club_id: clubId, encargado_id: encargadoId },
     attributes: ['id'],
   });
   return Boolean(division);
@@ -600,11 +605,13 @@ export const crearAnuncioClub = async ({
 
   if (anuncio?.ok === false) return anuncio;
 
-  const destinatarios = await resolverDestinatariosAnuncio(anuncio);
-  await notificarAnuncioClub({
-    anuncio,
-    destinatarios: destinatarios.filter((id) => id !== autorId),
-  });
+  // Responder al cliente sin esperar fan-out de notificaciones/push.
+  void resolverDestinatariosAnuncio(anuncio)
+    .then((destinatarios) => notificarAnuncioClub({
+      anuncio,
+      destinatarios: destinatarios.filter((id) => id !== autorId),
+    }))
+    .catch((error) => console.error('Error notificando anuncio club (async):', error));
 
   return { ok: true, data: anuncio };
 };
@@ -805,10 +812,16 @@ export const listarNovedadesUsuario = async (userId, { limit = 30 } = {}) => {
 };
 
 export const puedeGestionarDivision = async (clubId, divisionId, userId) => {
+  if (!clubId || !divisionId || userId == null || userId === '') return false;
+  const uid = Number(userId);
+  if (!Number.isFinite(uid) || uid <= 0) return false;
+
   const club = await Clubs.findByPk(clubId, { attributes: ['id', 'admin_id'] });
   if (!club) return false;
-  if (usuarioEsAdminClub(club, userId)) return true;
-  return usuarioEsEncargadoDivision(clubId, divisionId, userId);
+  // Solo admin del club o encargado_id de ESA división.
+  // ClubMiembros.rol_membresia (ENCARGADO/ENTRENADOR/ATLETA) NO otorga este permiso.
+  if (usuarioEsAdminClub(club, uid)) return true;
+  return usuarioEsEncargadoDivision(clubId, divisionId, uid);
 };
 
 const contarConfirmaciones = (confirmaciones = []) => ({
@@ -968,7 +981,13 @@ export const crearEventoDivision = async ({
   if (!valDivision.ok) return { ok: false, status: 400, error: valDivision.error };
 
   const puede = await puedeGestionarDivision(clubId, divisionId, userId);
-  if (!puede) return { ok: false, status: 403, error: 'Sin permiso para programar eventos en esta división' };
+  if (!puede) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Sin permiso para programar eventos: solo admin del club o encargado de esta división',
+    };
+  }
 
   const tipoEvento = (tipo || 'ENTRENAMIENTO').toUpperCase();
   if (!TIPOS_EVENTO.includes(tipoEvento)) {
@@ -1068,7 +1087,8 @@ export const crearEventoDivision = async ({
     return { eventoPrincipal, creados };
   });
 
-  await Promise.all(
+  // No bloquear 201 esperando N notificaciones + push por atleta.
+  void Promise.all(
     eventosCreados.creados.map((evento) => notificarConvocatoriaEntrenamiento({
       eventoId: evento.id,
       club,
@@ -1076,7 +1096,7 @@ export const crearEventoDivision = async ({
       evento,
       destinatarioIds: jugadorIds,
     })),
-  );
+  ).catch((error) => console.error('Error notificando convocatoria entrenamiento (async):', error));
 
   return {
     ok: true,
@@ -1873,13 +1893,13 @@ export const invitarAtletaDivision = async ({
     ],
   });
 
-  await notificarInvitacionClubDivision({
+  void notificarInvitacionClubDivision({
     invitacionId: invitacion.id,
     usuarioInvitadoId: targetId,
     invitador: invitador ?? { id: userId },
     club,
     division,
-  });
+  }).catch((error) => console.error('Error notificando invitación división (async):', error));
 
   return {
     ok: true,

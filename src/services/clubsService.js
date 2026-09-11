@@ -30,20 +30,38 @@ export const usuarioEsAdminClub = (club, userId) =>
 
 export const usuarioPuedeGestionarClub = async (clubId, userId) => {
   const club = await Clubs.findByPk(clubId, { attributes: ['id', 'admin_id'] });
-  if (!club) return { club: null, puede: false, esAdmin: false };
+  if (!club) return { club: null, puede: false, esAdmin: false, divisionIdsGestionables: [] };
 
-  const esAdmin = usuarioEsAdminClub(club, userId);
-  if (esAdmin) return { club, puede: true, esAdmin: true };
+  const uid = Number(userId);
+  if (!Number.isFinite(uid) || uid <= 0) {
+    return { club, puede: false, esAdmin: false, divisionIdsGestionables: [] };
+  }
 
-  const divisionEncargada = await ClubDivisiones.findOne({
-    where: { club_id: clubId, encargado_id: userId },
+  const esAdmin = usuarioEsAdminClub(club, uid);
+  if (esAdmin) {
+    const todas = await ClubDivisiones.findAll({
+      where: { club_id: clubId },
+      attributes: ['id'],
+    });
+    return {
+      club,
+      puede: true,
+      esAdmin: true,
+      divisionIdsGestionables: todas.map((d) => d.id),
+    };
+  }
+
+  const divisionesEncargadas = await ClubDivisiones.findAll({
+    where: { club_id: clubId, encargado_id: uid },
     attributes: ['id'],
   });
+  const divisionIdsGestionables = divisionesEncargadas.map((d) => d.id);
 
   return {
     club,
-    puede: Boolean(divisionEncargada),
+    puede: divisionIdsGestionables.length > 0,
     esAdmin: false,
+    divisionIdsGestionables,
   };
 };
 
@@ -349,6 +367,8 @@ export const obtenerPerfilPublicoClub = async (clubId, viewerId) => {
     permisos: {
       es_admin: esAdmin,
       puede_gestionar: permisos.puede,
+      // Solo estas divisiones pueden usarse para programar/gestionar entrenamientos.
+      division_ids_gestionables: permisos.divisionIdsGestionables ?? [],
       publicacion_aviso: publicacionAviso,
     },
   };

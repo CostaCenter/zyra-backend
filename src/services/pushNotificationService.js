@@ -7,26 +7,43 @@ export function mensajePushPlano(mensaje) {
   return String(mensaje ?? '').replace(/\*\*/g, '').trim();
 }
 
+const EXPO_PUSH_TIMEOUT_MS = 8000;
+
 async function enviarLote(messages) {
   if (!messages.length) return [];
 
-  const response = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Accept-encoding': 'gzip, deflate',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(messages),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXPO_PUSH_TIMEOUT_MS);
 
-  if (!response.ok) {
-    console.error('Expo push API error:', response.status, await response.text());
+  try {
+    const response = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(messages),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.error('Expo push API error:', response.status, await response.text());
+      return [];
+    }
+
+    const payload = await response.json();
+    return Array.isArray(payload?.data) ? payload.data : [];
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      console.error(`Expo push API timeout (>${EXPO_PUSH_TIMEOUT_MS}ms)`);
+    } else {
+      console.error('Expo push API fetch error:', error);
+    }
     return [];
+  } finally {
+    clearTimeout(timer);
   }
-
-  const payload = await response.json();
-  return Array.isArray(payload?.data) ? payload.data : [];
 }
 
 async function limpiarTokensInvalidos(messages, tickets) {

@@ -345,19 +345,19 @@ export async function setReaccion(contenidoTipoRaw, contenidoIdRaw, userId, tipo
       attributes: ['id', 'nick', 'name', 'photo'],
     });
     if (norm.tipo === 'PUBLICACION') {
-      await notificarReaccionPublicacion({
+      void notificarReaccionPublicacion({
         publicacionId: contenidoId,
         autorPublicacionId: permiso.autorId,
         reactor,
         tipoReaccion,
-      });
+      }).catch((error) => console.error('Error notificando reacción publicación (async):', error));
     } else {
-      await notificarReaccionAviso({
+      void notificarReaccionAviso({
         anuncioId: contenidoId,
         autorAvisoId: permiso.autorId,
         reactor,
         tipoReaccion,
-      });
+      }).catch((error) => console.error('Error notificando reacción aviso (async):', error));
     }
   }
 
@@ -583,19 +583,19 @@ export async function crearComentario(
 
   for (const destId of destinatarios) {
     if (norm.tipo === 'PUBLICACION') {
-      await notificarComentarioPublicacion({
+      void notificarComentarioPublicacion({
         publicacionId: contenidoId,
         autorPublicacionId: destId,
         comentarista: autor,
         comentarioId: comentario.id,
-      });
+      }).catch((error) => console.error('Error notificando comentario publicación (async):', error));
     } else {
-      await notificarComentarioAviso({
+      void notificarComentarioAviso({
         anuncioId: contenidoId,
         autorAvisoId: destId,
         comentarista: autor,
         comentarioId: comentario.id,
-      });
+      }).catch((error) => console.error('Error notificando comentario aviso (async):', error));
     }
   }
 
