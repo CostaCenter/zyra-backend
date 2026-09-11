@@ -51,14 +51,15 @@ DO $$ BEGIN
 END $$;
 
 -- Backfill admin como miembro ADMIN
-INSERT INTO club_miembros (club_id, usuario_id, rol_membresia, estado)
-SELECT c.id, c.admin_id, 'ADMIN', 'ACTIVO'
+INSERT INTO club_miembros (club_id, usuario_id, rol_membresia, estado, fecha_ingreso)
+SELECT c.id, c.admin_id, 'ADMIN', 'ACTIVO', NOW()
 FROM clubs c
+WHERE c.admin_id IS NOT NULL
 ON CONFLICT (club_id, usuario_id) DO NOTHING;
 
 -- Backfill encargados de división
-INSERT INTO club_miembros (club_id, usuario_id, rol_membresia, estado)
-SELECT d.club_id, d.encargado_id, 'ENCARGADO', 'ACTIVO'
+INSERT INTO club_miembros (club_id, usuario_id, rol_membresia, estado, fecha_ingreso)
+SELECT d.club_id, d.encargado_id, 'ENCARGADO', 'ACTIVO', NOW()
 FROM club_divisiones d
 WHERE d.encargado_id IS NOT NULL
 ON CONFLICT (club_id, usuario_id) DO UPDATE

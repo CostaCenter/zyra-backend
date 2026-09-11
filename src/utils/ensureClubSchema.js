@@ -73,14 +73,33 @@ function isIgnorableSchemaError(err) {
     code === '42710' // duplicate_object
     || code === '42P07' // duplicate_table
     || code === '42701' // duplicate_column
+    || code === '23505' // unique_violation (backfill ya aplicado)
+    || code === '23502' // not_null en backfills de datos (no debe tumbar el boot)
     || /already exists/i.test(msg)
     || /duplicate key/i.test(msg)
+    || /violates not-null constraint/i.test(msg)
   );
+}
+
+function isDataBackfillStatement(statement) {
+  return /^\s*INSERT\s+INTO\s+/i.test(statement);
 }
 
 export async function ensureClubSchema(sequelize) {
   let applied = 0;
   let skipped = 0;
+
+  // Prod a veces tiene la columna sin DEFAULT a nivel PG (creada por sync).
+  try {
+    await sequelize.query(`
+      ALTER TABLE club_miembros
+        ALTER COLUMN fecha_ingreso SET DEFAULT NOW()
+    `);
+  } catch (err) {
+    if (!isIgnorableSchemaError(err) && !/does not exist/i.test(String(err?.message || ''))) {
+      console.warn('⚠️  ensureClubSchema fecha_ingreso DEFAULT:', err.message);
+    }
+  }
 
   for (const fileName of CRITICAL_FILES) {
     const filePath = path.join(migrationsDir, fileName);
@@ -97,8 +116,11 @@ export async function ensureClubSchema(sequelize) {
         await sequelize.query(statement);
         applied += 1;
       } catch (err) {
-        if (isIgnorableSchemaError(err)) {
+        if (isIgnorableSchemaError(err) || isDataBackfillStatement(statement)) {
           skipped += 1;
+          if (isDataBackfillStatement(statement) && !isIgnorableSchemaError(err)) {
+            console.warn(`⚠️  ensureClubSchema backfill omitido (${fileName}):`, err.message);
+          }
           continue;
         }
         console.error(`❌ ensureClubSchema falló en ${fileName}:`, err.message);
