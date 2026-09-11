@@ -10,6 +10,7 @@ import {
   ClubAnuncios,
   Clubs,
   User,
+  sequelize,
 } from '../db/db.js';
 import { usuarioEsAdminClub } from './clubsService.js';
 import {
@@ -18,6 +19,7 @@ import {
   notificarReaccionAviso,
   notificarReaccionPublicacion,
 } from './notificacionesService.js';
+import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 
 async function resolverDestinatariosAnuncio(anuncio) {
   const { resolverDestinatariosAnuncio: resolver } = await import('./clubGestionService.js');
@@ -311,57 +313,67 @@ export async function setReaccion(contenidoTipoRaw, contenidoIdRaw, userId, tipo
     usuario_id: userId,
   };
 
-  const existente = await ContenidoReacciones.findOne({ where });
+  return sequelize.transaction(async (transaction) => {
+    const existente = await ContenidoReacciones.findOne({ where, transaction });
 
-  let accion;
-  let miReaccion;
+    let accion;
+    let miReaccion;
 
-  if (existente) {
-    if (existente.tipo_reaccion === tipoReaccion) {
-      await existente.destroy();
-      accion = 'eliminada';
-      miReaccion = null;
+    if (existente) {
+      if (existente.tipo_reaccion === tipoReaccion) {
+        await existente.destroy({ transaction });
+        accion = 'eliminada';
+        miReaccion = null;
+      } else {
+        await existente.update({ tipo_reaccion: tipoReaccion }, { transaction });
+        accion = 'actualizada';
+        miReaccion = tipoReaccion;
+      }
     } else {
-      await existente.update({ tipo_reaccion: tipoReaccion });
-      accion = 'actualizada';
+      await ContenidoReacciones.create({
+        ...where,
+        tipo_reaccion: tipoReaccion,
+      }, { transaction });
+      accion = 'creada';
       miReaccion = tipoReaccion;
     }
-  } else {
-    await ContenidoReacciones.create({
-      ...where,
-      tipo_reaccion: tipoReaccion,
-    });
-    accion = 'creada';
-    miReaccion = tipoReaccion;
-  }
 
-  if (
-    accion === 'creada'
-    && permiso.autorId
-    && permiso.autorId !== userId
-    && (norm.tipo === 'AVISO' || norm.tipo === 'PUBLICACION')
-  ) {
-    const reactor = await User.findByPk(userId, {
-      attributes: ['id', 'nick', 'name', 'photo'],
-    });
-    if (norm.tipo === 'PUBLICACION') {
-      void notificarReaccionPublicacion({
-        publicacionId: contenidoId,
-        autorPublicacionId: permiso.autorId,
-        reactor,
-        tipoReaccion,
-      }).catch((error) => console.error('Error notificando reacción publicación (async):', error));
-    } else {
-      void notificarReaccionAviso({
-        anuncioId: contenidoId,
-        autorAvisoId: permiso.autorId,
-        reactor,
-        tipoReaccion,
-      }).catch((error) => console.error('Error notificando reacción aviso (async):', error));
+    if (
+      accion === 'creada'
+      && permiso.autorId
+      && permiso.autorId !== userId
+      && (norm.tipo === 'AVISO' || norm.tipo === 'PUBLICACION')
+    ) {
+      const reactor = await User.findByPk(userId, {
+        attributes: ['id', 'nick', 'name', 'photo'],
+      });
+      const esPublicacion = norm.tipo === 'PUBLICACION';
+      const label = esPublicacion ? 'reaccion-publicacion' : 'reaccion-aviso';
+      const payload = esPublicacion
+        ? {
+          publicacionId: contenidoId,
+          autorPublicacionId: permiso.autorId,
+          actor: reactor,
+          tipoReaccion,
+        }
+        : {
+          anuncioId: contenidoId,
+          autorAvisoId: permiso.autorId,
+          actor: reactor,
+          tipoReaccion,
+        };
+
+      transaction.afterCommit(() => {
+        scheduleSideEffect(label, () => (
+          esPublicacion
+            ? notificarReaccionPublicacion(payload)
+            : notificarReaccionAviso(payload)
+        ));
+      });
     }
-  }
 
-  return { ok: true, data: { accion, mi_reaccion: miReaccion } };
+    return { ok: true, data: { accion, mi_reaccion: miReaccion } };
+  });
 }
 
 export async function quitarReaccion(contenidoTipoRaw, contenidoIdRaw, userId) {
@@ -563,58 +575,68 @@ export async function crearComentario(
     }
   }
 
-  const comentario = await ContenidoComentarios.create({
-    contenido_tipo: norm.tipo,
-    contenido_id: contenidoId,
-    usuario_id: userId,
-    texto,
-    comentario_padre_id: padreId,
-  });
+  return sequelize.transaction(async (transaction) => {
+    const comentario = await ContenidoComentarios.create({
+      contenido_tipo: norm.tipo,
+      contenido_id: contenidoId,
+      usuario_id: userId,
+      texto,
+      comentario_padre_id: padreId,
+    }, { transaction });
 
-  const autor = await User.findByPk(userId, { attributes: ['id', 'nick', 'name', 'photo'] });
+    const autor = await User.findByPk(userId, { attributes: ['id', 'nick', 'name', 'photo'] });
 
-  const destinatarios = new Set();
-  if (permiso.autorId && permiso.autorId !== userId) {
-    destinatarios.add(permiso.autorId);
-  }
-  if (padre && padre.usuario_id && padre.usuario_id !== userId) {
-    destinatarios.add(padre.usuario_id);
-  }
-
-  for (const destId of destinatarios) {
-    if (norm.tipo === 'PUBLICACION') {
-      void notificarComentarioPublicacion({
-        publicacionId: contenidoId,
-        autorPublicacionId: destId,
-        comentarista: autor,
-        comentarioId: comentario.id,
-      }).catch((error) => console.error('Error notificando comentario publicación (async):', error));
-    } else {
-      void notificarComentarioAviso({
-        anuncioId: contenidoId,
-        autorAvisoId: destId,
-        comentarista: autor,
-        comentarioId: comentario.id,
-      }).catch((error) => console.error('Error notificando comentario aviso (async):', error));
+    const destinatarios = new Set();
+    if (permiso.autorId && permiso.autorId !== userId) {
+      destinatarios.add(permiso.autorId);
     }
-  }
+    if (padre && padre.usuario_id && padre.usuario_id !== userId) {
+      destinatarios.add(padre.usuario_id);
+    }
 
-  return {
-    ok: true,
-    data: {
-      id: comentario.id,
-      texto: comentario.texto,
-      created_at: comentario.created_at,
-      comentario_padre_id: comentario.comentario_padre_id ?? null,
-      es_propio: true,
-      autor: mapAutor(autor),
-      reacciones: buildReaccionesResumen([], userId),
-      puede_eliminar: true,
-      puede_responder: padreId == null,
-      puede_reportar: false,
-      respuestas: [],
-    },
-  };
+    for (const destId of destinatarios) {
+      const esPublicacion = norm.tipo === 'PUBLICACION';
+      const label = esPublicacion ? 'comentario-publicacion' : 'comentario-aviso';
+      const payload = esPublicacion
+        ? {
+          publicacionId: contenidoId,
+          autorPublicacionId: destId,
+          comentarista: autor,
+          comentarioId: comentario.id,
+        }
+        : {
+          anuncioId: contenidoId,
+          autorAvisoId: destId,
+          comentarista: autor,
+          comentarioId: comentario.id,
+        };
+
+      transaction.afterCommit(() => {
+        scheduleSideEffect(label, () => (
+          esPublicacion
+            ? notificarComentarioPublicacion(payload)
+            : notificarComentarioAviso(payload)
+        ));
+      });
+    }
+
+    return {
+      ok: true,
+      data: {
+        id: comentario.id,
+        texto: comentario.texto,
+        created_at: comentario.created_at,
+        comentario_padre_id: comentario.comentario_padre_id ?? null,
+        es_propio: true,
+        autor: mapAutor(autor),
+        reacciones: buildReaccionesResumen([], userId),
+        puede_eliminar: true,
+        puede_responder: padreId == null,
+        puede_reportar: false,
+        respuestas: [],
+      },
+    };
+  });
 }
 
 export async function eliminarComentario(comentarioIdRaw, userId) {
