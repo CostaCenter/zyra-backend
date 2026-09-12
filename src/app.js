@@ -39,7 +39,7 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const BUILD_TAG = 'seed-victory-v2';
+const BUILD_TAG = 'seed-victory-v3';
 
 app.get('/', (req, res) => {
   res.json({

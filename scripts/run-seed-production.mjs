@@ -7,5 +7,10 @@ import { seedProductionIfEmpty } from '../src/utils/seedProductionIfEmpty.js';
 import { seedVictoryPlantelIfNeeded } from '../src/utils/seedVictoryPlantel.js';
 
 await seedProductionIfEmpty();
-await seedVictoryPlantelIfNeeded();
+try {
+  await seedVictoryPlantelIfNeeded();
+} catch (err) {
+  console.error('❌ Seed Victory falló:', err.message || err);
+  throw err;
+}
 console.log('🏁 run-seed-production terminado');

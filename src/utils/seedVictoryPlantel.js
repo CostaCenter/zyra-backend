@@ -9,9 +9,25 @@ const POSICIONES = [
   'OPUESTO', 'PUNTA', 'CENTRAL', 'PUNTA', 'CENTRAL',
 ];
 
+function shouldRunVictorySeed() {
+  if (process.env.SEED_VICTORY_PLANTEL === 'true') return true;
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return true;
+
+  const dbUrl = String(
+    process.env.DATABASE_URL
+    || process.env.DATABASE_PRIVATE_URL
+    || process.env.POSTGRES_URL
+    || '',
+  );
+  if (/railway\.(internal|app)|rlwy\.net|proxy\.rlwy/i.test(dbUrl)) return true;
+
+  const host = (process.env.DB_HOST || '').trim().toLowerCase();
+  return host !== 'localhost' && host !== '127.0.0.1' && host !== '::1' && host !== '';
+}
+
 export async function seedVictoryPlantelIfNeeded() {
-  const isRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
-  if (!isRailway && process.env.SEED_VICTORY_PLANTEL !== 'true') {
+  if (!shouldRunVictorySeed()) {
+    console.log('⏭ Seed Victory omitido: entorno local');
     return;
   }
 
