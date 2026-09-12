@@ -4,6 +4,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import { sequelize } from './db/db.js';
 import { seedProductionIfEmpty } from './utils/seedProductionIfEmpty.js';
+import { seedVictoryPlantelIfNeeded } from './utils/seedVictoryPlantel.js';
 import { resetPgSequences } from './utils/resetPgSequences.js';
 import { ensureClubSchema } from './utils/ensureClubSchema.js';
 import { initPartidoSocket, getSocketStatus } from './socket/partidoSocket.js';
@@ -39,7 +40,7 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const BUILD_TAG = 'seed-victory-v3';
+const BUILD_TAG = 'seed-victory-v4';
 
 app.get('/', (req, res) => {
   res.json({
@@ -123,6 +124,7 @@ seedProductionIfEmpty()
   })
   .then(() => sequelize.sync({ force: false }))
   .then(() => ensureClubSchema(sequelize))
+  .then(() => seedVictoryPlantelIfNeeded())
   .then(async () => {
     const [dbRow] = await sequelize.query('SELECT current_database() AS name');
     const dbName = dbRow?.[0]?.name ?? 'desconocida';
