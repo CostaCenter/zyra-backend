@@ -39,7 +39,7 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const BUILD_TAG = 'seed-victory-v1';
+const BUILD_TAG = 'seed-victory-v2';
 
 app.get('/', (req, res) => {
   res.json({
@@ -54,6 +54,17 @@ app.get('/health/data', async (req, res) => {
     const [sports] = await sequelize.query('SELECT COUNT(*)::int AS n FROM sports');
     const [users] = await sequelize.query('SELECT COUNT(*)::int AS n FROM "user"');
     const [torneos] = await sequelize.query('SELECT COUNT(*)::int AS n FROM torneos');
+    const [victoryClub] = await sequelize.query(
+      `SELECT c.id, c.nombre, cd.id AS division_id, cd.nombre AS division_nombre,
+              COUNT(cda.id)::int AS jugadores
+       FROM clubs c
+       LEFT JOIN club_divisiones cd ON cd.club_id = c.id
+       LEFT JOIN club_division_atletas cda ON cda.club_division_id = cd.id
+       WHERE c.nombre ILIKE '%victo%'
+       GROUP BY c.id, c.nombre, cd.id, cd.nombre
+       ORDER BY c.id, cd.id
+       LIMIT 1`,
+    );
     res.json({
       ok: true,
       buildTag: BUILD_TAG,
@@ -63,6 +74,7 @@ app.get('/health/data', async (req, res) => {
       torneos: torneos[0].n,
       seedFlag: process.env.SEED_PRODUCTION_DATA === 'true',
       railway: Boolean(process.env.RAILWAY_ENVIRONMENT),
+      victoryPlantel: victoryClub[0] ?? null,
       socket: getSocketStatus(),
     });
   } catch (err) {
