@@ -39,7 +39,7 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const BUILD_TAG = 'async-notify-v4';
+const BUILD_TAG = 'seed-victory-v1';
 
 app.get('/', (req, res) => {
   res.json({
