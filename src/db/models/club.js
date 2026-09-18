@@ -36,6 +36,11 @@ export default (sequelize) => {
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    whatsapp_plantilla_pago: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Plantilla WhatsApp recordatorio pagos. Placeholders: {nombre},{club},{concepto},{monto},{fecha_corte}',
+    },
   }, {
     tableName: 'clubs',
     timestamps: false,

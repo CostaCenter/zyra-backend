@@ -53,6 +53,26 @@ import {
   putResponderMembresiaSolicitud,
 } from '../controllers/clubGestionController.js';
 import {
+  getConceptosPagoClub,
+  postConceptoPagoClub,
+  patchConceptoPagoClub,
+  getPagosMiembrosClub,
+  postPagoMiembroClub,
+  putPagoMiembroClub,
+  getMisPagosClub,
+  getPrendasUniformeClub,
+  postPrendaUniformeClub,
+  getUniformesClub,
+  postUniformeClub,
+  putUniformeClub,
+  getHistorialUniformeClub,
+  getMiUniformeClub,
+  getWhatsappPlantillaPagoClub,
+  patchWhatsappPlantillaPagoClub,
+  postRecordatorioPagoClub,
+  getWhatsappMensajePagoClub,
+} from '../controllers/clubPagosUniformesController.js';
+import {
   getDestacadosClub,
   postDestacadoClub,
   putDestacadoClub,
@@ -110,6 +130,25 @@ router.delete(
 );
 
 router.get('/:club_id/miembros', verifyToken, getMiembrosClub);
+
+router.get('/:club_id/conceptos-pago', verifyToken, getConceptosPagoClub);
+router.post('/:club_id/conceptos-pago', verifyToken, postConceptoPagoClub);
+router.patch('/:club_id/conceptos-pago/:concepto_id', verifyToken, patchConceptoPagoClub);
+router.get('/:club_id/pagos-miembros', verifyToken, getPagosMiembrosClub);
+router.post('/:club_id/pagos-miembros', verifyToken, postPagoMiembroClub);
+router.put('/:club_id/pagos-miembros/:pago_id', verifyToken, putPagoMiembroClub);
+router.post('/:club_id/pagos-miembros/:pago_id/recordatorio', verifyToken, postRecordatorioPagoClub);
+router.get('/:club_id/pagos-miembros/:pago_id/whatsapp-mensaje', verifyToken, getWhatsappMensajePagoClub);
+router.get('/:club_id/pagos-config/whatsapp-plantilla', verifyToken, getWhatsappPlantillaPagoClub);
+router.patch('/:club_id/pagos-config/whatsapp-plantilla', verifyToken, patchWhatsappPlantillaPagoClub);
+router.get('/:club_id/mis-pagos', verifyToken, getMisPagosClub);
+router.get('/:club_id/prendas-uniforme', verifyToken, getPrendasUniformeClub);
+router.post('/:club_id/prendas-uniforme', verifyToken, postPrendaUniformeClub);
+router.get('/:club_id/uniformes', verifyToken, getUniformesClub);
+router.post('/:club_id/uniformes/asignaciones', verifyToken, postUniformeClub);
+router.put('/:club_id/uniformes/asignaciones/:asignacion_id', verifyToken, putUniformeClub);
+router.get('/:club_id/uniformes/asignaciones/:asignacion_id/historial', verifyToken, getHistorialUniformeClub);
+router.get('/:club_id/mi-uniforme', verifyToken, getMiUniformeClub);
 router.get('/:club_id/anuncios', verifyToken, getAnunciosClub);
 router.get('/:club_id/anuncios/:anuncio_id', verifyToken, getAnuncioClub);
 router.delete('/:club_id/anuncios/:anuncio_id', verifyToken, deleteAnuncioClub);

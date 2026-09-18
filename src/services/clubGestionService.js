@@ -1,4 +1,5 @@
 import { Op } from 'sequelize';
+import { mapUserForClient } from '../utils/userAvatar.js';
 import {
   sequelize,
   Clubs,
@@ -40,6 +41,7 @@ import {
   notificarInvitacionClubDivision,
   notificarRespuestaInvitacionClubDivision,
   notificarConvocatoriaEntrenamiento,
+  notificarRsvpEntrenamiento,
   notificarSolicitudMembresiaClub,
   notificarMembresiaClubAceptada,
   notificarMembresiaClubRechazada,
@@ -83,6 +85,17 @@ export const ENFOQUES_SESION = [
   'Fogueo/Amistoso interno',
 ];
 export const METRICAS_ENTRENAMIENTO = [
+  'Precisión en recepción de saque',
+  'Consistencia en el saque',
+  'Calidad y limpieza en la colocación',
+  'Control y dirección del remate',
+  'Efectividad en defensa de campo',
+  'Postura y lectura previa',
+  'Velocidad de transición',
+  'Cobertura a los compañeros',
+  'Comunicación en cancha',
+  'Actitud defensiva / Esfuerzo en balones divididos',
+  // Legacy (compatibilidad con sesiones antiguas)
   'Saque', 'Recepción', 'Ataque', 'Bloqueo', 'Defensa', 'Actitud',
 ];
 export const INDUMENTARIA_OPCIONES = [
@@ -532,7 +545,7 @@ export const listarMiembrosClub = async (clubId, { soloStaff = true } = {}) => {
     include: [{
       model: User,
       as: 'usuario',
-      attributes: ['id', 'nick', 'name', 'photo'],
+      attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
     }],
     order: [['rol_membresia', 'ASC'], ['fecha_ingreso', 'ASC']],
   });
@@ -621,7 +634,7 @@ export const listarAnunciosClub = async (clubId, { limit = 50, viewerUserId = nu
   const anuncios = await ClubAnuncios.findAll({
     where: { club_id: clubId },
     include: [
-      { model: User, as: 'autor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'autor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: ClubDivisiones, as: 'division', attributes: ['id', 'nombre', 'genero'], required: false },
       { model: Team, as: 'equipo', attributes: ['id', 'name'], required: false },
     ],
@@ -658,7 +671,7 @@ export const obtenerAnuncioClub = async (clubId, anuncioId, viewerUserId = null)
   const anuncio = await ClubAnuncios.findOne({
     where: { id: anuncioId, club_id: clubId },
     include: [
-      { model: User, as: 'autor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'autor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: ClubDivisiones, as: 'division', attributes: ['id', 'nombre', 'genero'], required: false },
       { model: Team, as: 'equipo', attributes: ['id', 'name'], required: false },
       { model: Clubs, as: 'club', attributes: ['id', 'nombre', 'logo_url', 'admin_id'] },
@@ -753,7 +766,7 @@ export const listarNovedadesUsuario = async (userId, { limit = 30 } = {}) => {
     where: { club_id: { [Op.in]: clubIds } },
     include: [
       { model: Clubs, as: 'club', attributes: ['id', 'nombre', 'logo_url', 'admin_id'] },
-      { model: User, as: 'autor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'autor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: ClubDivisiones, as: 'division', attributes: ['id', 'nombre', 'genero'], required: false },
       { model: Team, as: 'equipo', attributes: ['id', 'name'], required: false },
     ],
@@ -1154,9 +1167,9 @@ export const obtenerEventoDetalle = async (clubId, eventoId, viewerId) => {
       {
         model: ClubEventoConfirmaciones,
         as: 'confirmaciones',
-        include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] }],
+        include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
       },
-      { model: User, as: 'creadoPor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'creadoPor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
   });
 
@@ -1208,7 +1221,7 @@ export const obtenerEventoDetalle = async (clubId, eventoId, viewerId) => {
           include: [{
             model: User,
             as: 'jugador',
-            attributes: ['id', 'nick', 'name', 'photo'],
+            attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
           }],
         })
         : [];
@@ -1237,14 +1250,7 @@ export const obtenerEventoDetalle = async (clubId, eventoId, viewerId) => {
           puntos_personales: s.puntos_personales ?? 0,
           amarillas: s.amarillas ?? 0,
           rojas: s.rojas ?? 0,
-          usuario: s.jugador
-            ? {
-              id: s.jugador.id,
-              nick: s.jugador.nick,
-              name: s.jugador.name,
-              photo: s.jugador.photo,
-            }
-            : null,
+          usuario: s.jugador ? mapUserForClient(s.jugador) : null,
         })),
       };
     }
@@ -1254,14 +1260,7 @@ export const obtenerEventoDetalle = async (clubId, eventoId, viewerId) => {
     ok: true,
     data: {
       ...serializarEvento(evento),
-      creado_por: evento.creadoPor
-        ? {
-            id: evento.creadoPor.id,
-            nick: evento.creadoPor.nick,
-            name: evento.creadoPor.name,
-            photo: evento.creadoPor.photo,
-          }
-        : null,
+      creado_por: evento.creadoPor ? mapUserForClient(evento.creadoPor) : null,
       mi_respuesta: miConfirmacion?.respuesta ?? null,
       puede_responder: enDivision,
       puede_gestionar: puedeGestionar,
@@ -1269,14 +1268,7 @@ export const obtenerEventoDetalle = async (clubId, eventoId, viewerId) => {
         ? (evento.confirmaciones ?? []).map((c) => ({
           usuario_id: c.usuario_id,
           respuesta: c.respuesta,
-          usuario: c.usuario
-            ? {
-              id: c.usuario.id,
-              nick: c.usuario.nick,
-              name: c.usuario.name,
-              photo: c.usuario.photo,
-            }
-            : null,
+          usuario: c.usuario ? mapUserForClient(c.usuario) : null,
         }))
         : undefined,
       asistencias: puedeGestionar
@@ -1329,6 +1321,19 @@ export const listarLugaresDivision = async (clubId, divisionId) => {
   return { ok: true, data: lugares };
 };
 
+const resolverGestorEntrenamientoId = async (evento) => {
+  if (evento?.creado_por_id) return evento.creado_por_id;
+
+  const encargadoId = evento?.division?.encargado_id;
+  if (encargadoId) return encargadoId;
+
+  const clubId = evento?.division?.club_id;
+  if (!clubId) return null;
+
+  const club = await Clubs.findByPk(clubId, { attributes: ['admin_id'] });
+  return club?.admin_id ?? null;
+};
+
 export const responderConfirmacionEvento = async ({
   clubId,
   eventoId,
@@ -1341,7 +1346,12 @@ export const responderConfirmacionEvento = async ({
   }
 
   const evento = await ClubEventos.findByPk(eventoId, {
-    include: [{ model: ClubDivisiones, as: 'division', attributes: ['id', 'club_id'] }],
+    attributes: ['id', 'tipo', 'fecha_hora', 'creado_por_id', 'club_division_id', 'completado_at'],
+    include: [{
+      model: ClubDivisiones,
+      as: 'division',
+      attributes: ['id', 'club_id', 'encargado_id'],
+    }],
   });
   if (!evento || evento.division?.club_id !== clubId) {
     return { ok: false, status: 404, error: 'Evento no encontrado' };
@@ -1352,7 +1362,7 @@ export const responderConfirmacionEvento = async ({
     return { ok: false, status: 403, error: 'No perteneces a la nómina de esta división' };
   }
 
-  const [row] = await ClubEventoConfirmaciones.findOrCreate({
+  const [row, created] = await ClubEventoConfirmaciones.findOrCreate({
     where: { evento_id: eventoId, usuario_id: userId },
     defaults: {
       evento_id: eventoId,
@@ -1362,7 +1372,10 @@ export const responderConfirmacionEvento = async ({
     },
   });
 
-  if (row.respuesta !== resp) {
+  const respuestaAnterior = row.respuesta;
+  const huboCambio = created || respuestaAnterior !== resp;
+
+  if (!created && respuestaAnterior !== resp) {
     await row.update({ respuesta: resp, respondido_at: new Date() });
   }
 
@@ -1370,12 +1383,34 @@ export const responderConfirmacionEvento = async ({
     where: { evento_id: eventoId },
     attributes: ['respuesta'],
   });
+  const rsvp = contarConfirmaciones(confirmaciones);
+
+  if (
+    huboCambio
+    && evento.tipo === 'ENTRENAMIENTO'
+    && !evento.completado_at
+  ) {
+    const gestorId = await resolverGestorEntrenamientoId(evento);
+    if (gestorId && Number(gestorId) !== Number(userId)) {
+      const atleta = await User.findByPk(userId, {
+        attributes: ['id', 'name', 'nick'],
+      });
+      scheduleSideEffect('rsvp-entrenamiento', () => notificarRsvpEntrenamiento({
+        eventoId,
+        gestorId,
+        atleta,
+        respuesta: resp,
+        fechaHora: evento.fecha_hora,
+        resumenRsvp: rsvp,
+      }));
+    }
+  }
 
   return {
     ok: true,
     data: {
       respuesta: resp,
-      rsvp: contarConfirmaciones(confirmaciones),
+      rsvp,
     },
   };
 };
@@ -1448,14 +1483,7 @@ export const serializarAtleta = (atleta) => {
     posicion: json.posicion ?? null,
     estado: json.estado,
     fecha_ingreso: json.fecha_ingreso,
-    usuario: json.usuario
-      ? {
-          id: json.usuario.id,
-          nick: json.usuario.nick,
-          name: json.usuario.name,
-          photo: json.usuario.photo,
-        }
-      : null,
+    usuario: json.usuario ? mapUserForClient(json.usuario) : null,
   };
 };
 
@@ -1465,7 +1493,7 @@ export const listarAtletasDivision = async (clubId, divisionId) => {
 
   const atletas = await ClubDivisionAtletas.findAll({
     where: { club_division_id: divisionId },
-    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] }],
+    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
     order: [['dorsal', 'ASC'], ['id', 'ASC']],
   });
 
@@ -1582,13 +1610,13 @@ export const obtenerDetalleDivision = async (clubId, divisionId, viewerId) => {
   const division = await ClubDivisiones.findOne({
     where: { id: divisionId, club_id: clubId },
     include: [
-      { model: User, as: 'encargado', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'encargado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       {
         model: Team,
         as: 'equipos',
         attributes: ['id', 'name', 'logo_url', 'capitan_id', 'club_division_id', 'genero', 'categoria_edad'],
         include: [
-          { model: User, as: 'capitan', attributes: ['id', 'nick', 'name', 'photo'] },
+          { model: User, as: 'capitan', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
         ],
       },
     ],
@@ -1598,7 +1626,7 @@ export const obtenerDetalleDivision = async (clubId, divisionId, viewerId) => {
 
   const club = await Clubs.findByPk(clubId, {
     include: [
-      { model: User, as: 'admin', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'admin', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: Sports, as: 'sport', attributes: ['id', 'name'] },
     ],
   });
@@ -1613,8 +1641,8 @@ export const obtenerDetalleDivision = async (clubId, divisionId, viewerId) => {
     const pendientes = await ClubDivisionInvitaciones.findAll({
       where: { club_division_id: divisionId, estado: 'PENDIENTE' },
       include: [
-        { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo'] },
-        { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo'] },
+        { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
+        { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       ],
       order: [['created_at', 'DESC']],
     });
@@ -1633,14 +1661,7 @@ export const obtenerDetalleDivision = async (clubId, divisionId, viewerId) => {
             nombre: club.nombre,
             logo_url: club.logo_url,
             sport: club.sport ? { id: club.sport.id, name: club.sport.name } : null,
-            admin: club.admin
-              ? {
-                  id: club.admin.id,
-                  nick: club.admin.nick,
-                  name: club.admin.name,
-                  photo: club.admin.photo,
-                }
-              : null,
+            admin: club.admin ? mapUserForClient(club.admin) : null,
           }
         : null,
       division: {
@@ -1705,7 +1726,7 @@ export const agregarAtletaDivision = async ({
   });
 
   const completo = await ClubDivisionAtletas.findByPk(atleta.id, {
-    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] }],
+    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
   });
 
   await asegurarMiembroClub({
@@ -1754,7 +1775,7 @@ export const actualizarAtletaDivision = async ({
 
   await atleta.update(patch);
   const completo = await ClubDivisionAtletas.findByPk(atleta.id, {
-    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] }],
+    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
   });
 
   return { ok: true, data: serializarAtleta(completo) };
@@ -1790,22 +1811,8 @@ export const serializarInvitacionDivision = (row) => {
     invitado_por_id: json.invitado_por_id,
     estado: json.estado,
     created_at: json.created_at,
-    invitado: json.invitado
-      ? {
-          id: json.invitado.id,
-          nick: json.invitado.nick,
-          name: json.invitado.name,
-          photo: json.invitado.photo,
-        }
-      : null,
-    invitador: json.invitador
-      ? {
-          id: json.invitador.id,
-          nick: json.invitador.nick,
-          name: json.invitador.name,
-          photo: json.invitador.photo,
-        }
-      : null,
+    invitado: json.invitado ? mapUserForClient(json.invitado) : null,
+    invitador: json.invitador ? mapUserForClient(json.invitador) : null,
   };
 };
 
@@ -1830,7 +1837,7 @@ export const invitarAtletaDivision = async ({
   }
 
   const usuarioInvitado = await User.findByPk(targetId, {
-    attributes: ['id', 'nick', 'name', 'photo'],
+    attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
   });
   if (!usuarioInvitado) return { ok: false, status: 404, error: 'Usuario no encontrado' };
 
@@ -1889,8 +1896,8 @@ export const invitarAtletaDivision = async ({
 
   const completa = await ClubDivisionInvitaciones.findByPk(invitacion.id, {
     include: [
-      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo'] },
-      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
+      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
   });
 
@@ -1921,8 +1928,8 @@ export const obtenerInvitacionDivisionDetalle = async ({
   const invitacion = await ClubDivisionInvitaciones.findOne({
     where: { id: invitacionId, club_division_id: divisionId },
     include: [
-      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo'] },
-      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
+      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       {
         model: ClubDivisiones,
         as: 'division',
@@ -1979,8 +1986,8 @@ export const responderInvitacionDivision = async ({
   const invitacion = await ClubDivisionInvitaciones.findOne({
     where: { id: invitacionId, club_division_id: divisionId },
     include: [
-      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo'] },
-      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
+      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       {
         model: ClubDivisiones,
         as: 'division',
@@ -2052,8 +2059,8 @@ export const responderInvitacionDivision = async ({
 
   const completa = await ClubDivisionInvitaciones.findByPk(result.id, {
     include: [
-      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo'] },
-      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'invitado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
+      { model: User, as: 'invitador', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
   });
 
@@ -2287,7 +2294,7 @@ export const crearEquipoCompetenciaDivision = async ({
   });
 
   const completo = await Team.findByPk(equipo.id, {
-    include: [{ model: User, as: 'capitan', attributes: ['id', 'nick', 'name', 'photo'] }],
+    include: [{ model: User, as: 'capitan', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
   });
 
   const idsJugadores = (Array.isArray(jugadorIds) ? jugadorIds : [])
@@ -2385,7 +2392,7 @@ export const registrarAsistenciaEvento = async ({
 
   const asistencias = await ClubEventoAsistencias.findAll({
     where: { evento_id: eventoId },
-    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] }],
+    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
   });
 
   return { ok: true, data: asistencias.map((a) => a.toJSON()) };
@@ -2637,7 +2644,7 @@ export const guardarEvaluacionEvento = async ({
       const metricaId = parseId(det.metrica_id);
       const calificacion = parseInt(det.calificacion, 10);
       if (!metricaId || !metricaIds.has(metricaId)) continue;
-      if (!Number.isFinite(calificacion) || calificacion < 1 || calificacion > 10) continue;
+      if (!Number.isFinite(calificacion) || calificacion < 0 || calificacion > 100) continue;
 
       const [detRow] = await ClubEventoEvaluacionDetalle.findOrCreate({
         where: { evaluacion_id: evalRow.id, metrica_id: metricaId },
@@ -3059,14 +3066,7 @@ export const serializarMembresiaSolicitud = (solicitud) => {
     rol_asignado: json.rol_asignado ?? null,
     resuelto_at: json.resuelto_at ?? null,
     creado_at: json.creado_at,
-    usuario: json.usuario
-      ? {
-          id: json.usuario.id,
-          nick: json.usuario.nick,
-          name: json.usuario.name,
-          photo: json.usuario.photo,
-        }
-      : null,
+    usuario: json.usuario ? mapUserForClient(json.usuario) : null,
     club: json.club
       ? {
           id: json.club.id,
@@ -3074,14 +3074,7 @@ export const serializarMembresiaSolicitud = (solicitud) => {
           logo_url: json.club.logo_url,
         }
       : null,
-    resuelto_por: json.resueltoPor
-      ? {
-          id: json.resueltoPor.id,
-          nick: json.resueltoPor.nick,
-          name: json.resueltoPor.name,
-          photo: json.resueltoPor.photo,
-        }
-      : null,
+    resuelto_por: json.resueltoPor ? mapUserForClient(json.resueltoPor) : null,
   };
 };
 
@@ -3166,7 +3159,7 @@ export const solicitarMembresiaPorCodigo = async ({ codigo, userId, solicitante 
 
   const solicitanteRow = solicitante?.nick || solicitante?.name
     ? solicitante
-    : await User.findByPk(userId, { attributes: ['id', 'nick', 'name', 'photo'] });
+    : await User.findByPk(userId, { attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] });
 
   scheduleSideEffect('solicitud-membresia-club', () => notificarSolicitudMembresiaClub({
     solicitudId: solicitud.id,
@@ -3176,7 +3169,7 @@ export const solicitarMembresiaPorCodigo = async ({ codigo, userId, solicitante 
 
   const completa = await ClubMembresiaSolicitudes.findByPk(solicitud.id, {
     include: [
-      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: Clubs, as: 'club', attributes: ['id', 'nombre', 'logo_url'] },
     ],
   });
@@ -3212,8 +3205,8 @@ export const listarMembresiaSolicitudes = async ({
   const rows = await ClubMembresiaSolicitudes.findAll({
     where,
     include: [
-      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] },
-      { model: User, as: 'resueltoPor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
+      { model: User, as: 'resueltoPor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
     order: [['creado_at', 'DESC']],
   });
@@ -3237,9 +3230,9 @@ export const obtenerMembresiaSolicitudDetalle = async ({
   const solicitud = await ClubMembresiaSolicitudes.findOne({
     where: { id: solicitudId, club_id: clubId },
     include: [
-      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: Clubs, as: 'club', attributes: ['id', 'nombre', 'logo_url', 'admin_id'] },
-      { model: User, as: 'resueltoPor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'resueltoPor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
   });
 
@@ -3281,7 +3274,7 @@ export const responderMembresiaSolicitud = async ({
   const solicitud = await ClubMembresiaSolicitudes.findOne({
     where: { id: solicitudId, club_id: clubId },
     include: [
-      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: Clubs, as: 'club', attributes: ['id', 'nombre', 'logo_url', 'admin_id'] },
     ],
   });
@@ -3330,9 +3323,9 @@ export const responderMembresiaSolicitud = async ({
 
   const actualizada = await ClubMembresiaSolicitudes.findByPk(solicitud.id, {
     include: [
-      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       { model: Clubs, as: 'club', attributes: ['id', 'nombre', 'logo_url'] },
-      { model: User, as: 'resueltoPor', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'resueltoPor', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
   });
 

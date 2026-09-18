@@ -16,6 +16,7 @@ import {
 } from '../db/db.js';
 import { notificarEtiquetaPendiente } from './notificacionesService.js';
 import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
+import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
 
 const parseJsonArray = (value) => {
   if (value === undefined || value === null || value === '') return [];
@@ -60,14 +61,7 @@ export const serializarPublicacion = (publicacion) => {
           logo_url: json.equipo.logo_url ?? null,
         }
       : null,
-    autor: autorRaw
-      ? {
-          id: autorRaw.id,
-          nick: autorRaw.nick,
-          name: autorRaw.name,
-          photo: autorRaw.photo,
-        }
-      : null,
+    autor: autorRaw ? mapUserForClient(autorRaw) : null,
     deportes: json.deportes?.map((d) => ({
       id: d.sport?.id ?? d.sport_id,
       name: d.sport?.name ?? null
@@ -215,7 +209,7 @@ export const listarPublicacionesFiltradas = async (userId, sportId) => {
       {
         model: User,
         as: 'autor',
-        attributes: ['id', 'nick', 'name', 'photo'],
+        attributes: USER_PUBLIC_ATTRIBUTES,
         required: false,
       },
       ...includesPublicacionDeportes,
@@ -259,7 +253,7 @@ export const listarPublicacionesDeEquipo = async (teamId, memberIds, sportId) =>
             {
               model: User,
               as: 'autor',
-              attributes: ['id', 'nick', 'name', 'photo'],
+              attributes: USER_PUBLIC_ATTRIBUTES,
               required: false,
             },
             ...includesPublicacionDeportes,
@@ -274,7 +268,7 @@ export const listarPublicacionesDeEquipo = async (teamId, memberIds, sportId) =>
         {
           model: User,
           as: 'autor',
-          attributes: ['id', 'nick', 'name', 'photo'],
+          attributes: USER_PUBLIC_ATTRIBUTES,
           required: false,
         },
         ...includesPublicacionDeportes,
@@ -292,7 +286,7 @@ export const listarPublicacionesDeEquipo = async (teamId, memberIds, sportId) =>
               {
                 model: User,
                 as: 'autor',
-                attributes: ['id', 'nick', 'name', 'photo'],
+                attributes: USER_PUBLIC_ATTRIBUTES,
                 required: false,
               },
               ...includesPublicacionDeportes,
@@ -329,7 +323,7 @@ export const listarPublicacionesDondeEtiquetado = async (userId, sportId) => {
         {
           model: User,
           as: 'autor',
-          attributes: ['id', 'nick', 'name', 'photo'],
+          attributes: USER_PUBLIC_ATTRIBUTES,
           required: false,
         },
         ...includesPublicacionDeportes,

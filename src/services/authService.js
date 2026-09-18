@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User, Complejos } from '../db/db.js';
+import { mapUserForClient } from '../utils/userAvatar.js';
 
 /**
  * Servicio de Autenticación - Zyra
@@ -51,15 +52,19 @@ const buildAuthResponse = async (user, { withComplejos = false } = {}) => {
   );
 
   const { password_hash: _, ...userWithoutPassword } = user.toJSON();
+  const userForClient = {
+    ...userWithoutPassword,
+    ...mapUserForClient(userWithoutPassword),
+  };
 
   if (!withComplejos) {
-    return { token, user: userWithoutPassword };
+    return { token, user: userForClient };
   }
 
   return {
     token,
     user: {
-      ...userWithoutPassword,
+      ...userForClient,
       complejos: userWithoutPassword.complejosConAcceso || []
     }
   };

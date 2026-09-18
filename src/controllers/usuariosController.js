@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import { User } from '../db/db.js';
 import { obtenerUsuariosDestacados } from '../services/destacadosService.js';
+import { mapUserForClient } from '../utils/userAvatar.js';
 
 const LIMITE_BUSQUEDA = 10;
 
@@ -24,12 +25,12 @@ export const buscarUsuariosPorNick = async (req, res) => {
         id: { [Op.ne]: req.userId },
         nick: { [Op.iLike]: `%${nick}%` }
       },
-      attributes: ['id', 'nick', 'name', 'photo'],
+      attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
       limit: LIMITE_BUSQUEDA,
       order: [['nick', 'ASC']]
     });
 
-    const data = usuarios.map((usuario) => usuario.toJSON());
+    const data = usuarios.map((usuario) => mapUserForClient(usuario));
 
     return res.status(200).json({
       success: true,

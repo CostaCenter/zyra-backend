@@ -78,6 +78,14 @@ const MIGRATION_FILES = [
   '053_club_membresia_solicitudes.sql',
   '054_interacciones_sociales_extension.sql',
   '055_notificaciones_vista_bandeja.sql',
+  '056_club_pagos_uniformes.sql',
+  '057_club_mensualidad_ciclo.sql',
+  '058_club_prendas_uniforme_redesign.sql',
+  '059_drop_periodicidad_dias.sql',
+  '060_club_cuota_ingreso_unica.sql',
+  '061_club_whatsapp_plantilla_pago.sql',
+  '062_club_metricas_voley_ampliadas.sql',
+  '063_evaluacion_calificacion_0_100.sql',
 ];
 
 async function runSqlFile(fileName) {

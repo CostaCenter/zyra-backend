@@ -18,6 +18,10 @@ export default (sequelize) => {
     calificacion: {
       type: DataTypes.SMALLINT,
       allowNull: false,
+      validate: {
+        min: 0,
+        max: 100,
+      },
     },
   }, {
     tableName: 'club_evento_evaluacion_detalle',

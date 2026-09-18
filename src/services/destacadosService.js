@@ -11,6 +11,7 @@ import {
 } from '../db/db.js';
 import { serializarPublicacion } from './publicacionesService.js';
 import { enriquecerInteraccionesBatch } from './interaccionSocialService.js';
+import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
 
 const LIMITE_DEFAULT = 10;
 
@@ -18,7 +19,7 @@ const includePublicacion = [
   {
     model: User,
     as: 'autor',
-    attributes: ['id', 'nick', 'name', 'photo'],
+    attributes: USER_PUBLIC_ATTRIBUTES,
     where: { status: 'ACTIVO' },
     required: true,
   },
@@ -119,7 +120,7 @@ export const obtenerUsuariosDestacados = async (userId, limite = LIMITE_DEFAULT)
 
   const usuarios = await User.findAll({
     where,
-    attributes: ['id', 'nick', 'name', 'photo', 'creado_at'],
+    attributes: [...USER_PUBLIC_ATTRIBUTES, 'creado_at'],
     order: [['creado_at', 'DESC']],
     limit: Math.max(limite * 3, 30),
   });
@@ -133,10 +134,7 @@ export const obtenerUsuariosDestacados = async (userId, limite = LIMITE_DEFAULT)
     .map((usuario) => {
       const json = usuario.toJSON();
       return {
-        id: json.id,
-        nick: json.nick,
-        name: json.name,
-        photo: json.photo,
+        ...mapUserForClient(json),
         seguidores_count: seguidoresMap[json.id] || 0,
         creado_at: json.creado_at,
       };

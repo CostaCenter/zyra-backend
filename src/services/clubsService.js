@@ -10,6 +10,7 @@ import {
   Torneos,
   TeamMiembros,
 } from '../db/db.js';
+import { mapUserForClient } from '../utils/userAvatar.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -21,7 +22,7 @@ export const buscarClub = async (clubId, { transaction = null } = {}) =>
     transaction,
     include: [
       { model: Sports, as: 'sport', attributes: ['id', 'name'] },
-      { model: User, as: 'admin', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'admin', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
     ],
   });
 
@@ -160,6 +161,79 @@ export const obtenerPermisosPublicacionAviso = async (clubId, userId, club = nul
   };
 };
 
+/** Usuarios únicos activos por club: miembros, atletas, planteles y admin. */
+const contarMiembrosActivosPorClubIds = async (clubIds) => {
+  const ids = [...new Set(clubIds.map((id) => parseId(id)).filter(Boolean))];
+  const counts = Object.fromEntries(ids.map((id) => [id, 0]));
+  if (!ids.length) return counts;
+
+  const sets = Object.fromEntries(ids.map((id) => [id, new Set()]));
+  const addUsuario = (clubId, userId) => {
+    const cid = parseId(clubId);
+    const uid = parseId(userId);
+    if (!cid || !uid || !sets[cid]) return;
+    sets[cid].add(uid);
+  };
+
+  const [miembrosRows, divisionesRows, equiposRows, clubsAdmin] = await Promise.all([
+    ClubMiembros.findAll({
+      where: { club_id: { [Op.in]: ids }, estado: 'ACTIVO' },
+      attributes: ['club_id', 'usuario_id'],
+    }),
+    ClubDivisiones.findAll({
+      where: { club_id: { [Op.in]: ids } },
+      attributes: ['id', 'club_id'],
+      include: [{
+        model: ClubDivisionAtletas,
+        as: 'atletas',
+        attributes: ['usuario_id', 'estado'],
+        required: false,
+      }],
+    }),
+    Team.findAll({
+      where: { club_id: { [Op.in]: ids } },
+      attributes: ['id', 'club_id'],
+    }),
+    Clubs.findAll({
+      where: { id: { [Op.in]: ids } },
+      attributes: ['id', 'admin_id'],
+    }),
+  ]);
+
+  miembrosRows.forEach((row) => addUsuario(row.club_id, row.usuario_id));
+
+  divisionesRows.forEach((division) => {
+    for (const atleta of division.atletas ?? []) {
+      if (atleta.estado === 'INACTIVO') continue;
+      addUsuario(division.club_id, atleta.usuario_id);
+    }
+  });
+
+  clubsAdmin.forEach((club) => addUsuario(club.id, club.admin_id));
+
+  if (equiposRows.length) {
+    const clubPorEquipo = Object.fromEntries(
+      equiposRows.map((equipo) => [equipo.id, equipo.club_id]),
+    );
+    const planteles = await TeamMiembros.findAll({
+      where: {
+        team_id: { [Op.in]: equiposRows.map((equipo) => equipo.id) },
+        estado_invitacion: 'ACEPTADO',
+      },
+      attributes: ['team_id', 'user_id'],
+    });
+    planteles.forEach((row) => {
+      const clubId = clubPorEquipo[row.team_id];
+      if (clubId) addUsuario(clubId, row.user_id);
+    });
+  }
+
+  ids.forEach((id) => {
+    counts[id] = sets[id].size;
+  });
+  return counts;
+};
+
 export const listarClubesUsuario = async (userId) => {
   const [comoAdmin, divisionesEncargadas, membresias, equiposEnClub] = await Promise.all([
     Clubs.findAll({
@@ -222,14 +296,21 @@ export const listarClubesUsuario = async (userId) => {
     });
   }
 
+  const allClubIds = [
+    ...comoAdmin.map((club) => club.id),
+    ...comoEncargado.map((club) => club.id),
+    ...participo.map((club) => club.id),
+  ];
+  const miembrosCounts = await contarMiembrosActivosPorClubIds(allClubIds);
+
   return {
-    administrados: comoAdmin.map(serializarClubResumen),
-    encargados: comoEncargado.map(serializarClubResumen),
-    participo: participo.map(serializarClubResumen),
+    administrados: comoAdmin.map((club) => serializarClubResumen(club, miembrosCounts[club.id] ?? 0)),
+    encargados: comoEncargado.map((club) => serializarClubResumen(club, miembrosCounts[club.id] ?? 0)),
+    participo: participo.map((club) => serializarClubResumen(club, miembrosCounts[club.id] ?? 0)),
   };
 };
 
-const serializarClubResumen = (club) => {
+const serializarClubResumen = (club, miembrosCount = 0) => {
   const json = typeof club.toJSON === 'function' ? club.toJSON() : club;
   return {
     id: json.id,
@@ -237,6 +318,7 @@ const serializarClubResumen = (club) => {
     logo_url: json.logo_url,
     ubicacion: json.ubicacion,
     sport: json.sport ?? null,
+    miembros_count: miembrosCount,
   };
 };
 
@@ -247,14 +329,7 @@ export const serializarDivision = (division) => {
     nombre: json.nombre,
     genero: json.genero,
     categoria_edad: json.categoria_edad ?? null,
-    encargado: json.encargado
-      ? {
-          id: json.encargado.id,
-          nick: json.encargado.nick,
-          name: json.encargado.name,
-          photo: json.encargado.photo,
-        }
-      : null,
+    encargado: json.encargado ? mapUserForClient(json.encargado) : null,
     equipos_count: json.equipos?.length ?? json.equipos_count ?? 0,
   };
 };
@@ -268,14 +343,7 @@ export const serializarEquipoClub = (equipo) => {
     capitan_id: json.capitan_id,
     genero: json.genero ?? null,
     categoria_edad: json.categoria_edad ?? null,
-    capitan: json.capitan
-      ? {
-          id: json.capitan.id,
-          nick: json.capitan.nick,
-          name: json.capitan.name,
-          photo: json.capitan.photo,
-        }
-      : null,
+    capitan: json.capitan ? mapUserForClient(json.capitan) : null,
     club_division_id: json.club_division_id ?? null,
     division: json.clubDivision
       ? { id: json.clubDivision.id, nombre: json.clubDivision.nombre }
@@ -287,18 +355,18 @@ export const obtenerPerfilPublicoClub = async (clubId, viewerId) => {
   const club = await Clubs.findByPk(clubId, {
     include: [
       { model: Sports, as: 'sport', attributes: ['id', 'name'] },
-      { model: User, as: 'admin', attributes: ['id', 'nick', 'name', 'photo'] },
+      { model: User, as: 'admin', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
       {
         model: ClubDivisiones,
         as: 'divisiones',
         include: [
-          { model: User, as: 'encargado', attributes: ['id', 'nick', 'name', 'photo'] },
+          { model: User, as: 'encargado', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
           {
             model: Team,
             as: 'equipos',
             attributes: ['id', 'name', 'logo_url', 'capitan_id', 'club_division_id', 'genero', 'categoria_edad'],
             include: [
-              { model: User, as: 'capitan', attributes: ['id', 'nick', 'name', 'photo'] },
+              { model: User, as: 'capitan', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] },
             ],
           },
         ],
@@ -346,14 +414,7 @@ export const obtenerPerfilPublicoClub = async (clubId, viewerId) => {
       descripcion: club.descripcion,
       ubicacion: club.ubicacion,
       sport: club.sport ? { id: club.sport.id, name: club.sport.name } : null,
-      admin: club.admin
-        ? {
-            id: club.admin.id,
-            nick: club.admin.nick,
-            name: club.admin.name,
-            photo: club.admin.photo,
-          }
-        : null,
+      admin: club.admin ? mapUserForClient(club.admin) : null,
       creado_at: club.creado_at,
     },
     divisiones,

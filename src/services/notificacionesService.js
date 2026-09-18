@@ -15,6 +15,8 @@ import {
   ClubAnuncios,
   ClubDivisionInvitaciones,
   ClubEventos,
+  ClubPagosMiembro,
+  ClubConceptosPago,
   ContenidoComentarios,
 } from '../db/db.js';
 import {
@@ -52,28 +54,51 @@ export const TIPOS_NOTIFICACION = {
   INVITACION_CLUB_DIVISION: 'INVITACION_CLUB_DIVISION',
   RESPUESTA_INVITACION_CLUB_DIVISION: 'RESPUESTA_INVITACION_CLUB_DIVISION',
   CONVOCATORIA_ENTRENAMIENTO: 'CONVOCATORIA_ENTRENAMIENTO',
+  RSVP_ENTRENAMIENTO: 'RSVP_ENTRENAMIENTO',
   ENTRENAMIENTO_FINALIZADO: 'ENTRENAMIENTO_FINALIZADO',
   COMENTARIO_AVISO: 'COMENTARIO_AVISO',
   COMENTARIO_PUBLICACION: 'COMENTARIO_PUBLICACION',
   REACCION_AVISO: 'REACCION_AVISO',
   REACCION_PUBLICACION: 'REACCION_PUBLICACION',
+  PAGO_CLUB_PROXIMO: 'PAGO_CLUB_PROXIMO',
+  PAGO_CLUB_VENCIDO: 'PAGO_CLUB_VENCIDO',
 };
 
 const displayName = (user) => user?.nick || user?.name || 'Alguien';
 
-async function publicarNotificacionEnVivo(notificacion, usuarioId) {
+const formatFechaEntrenamiento = (fechaHora) => {
+  if (!fechaHora) return 'próximamente';
+  return new Date(fechaHora).toLocaleString('es-CO', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const etiquetaRespuestaRsvp = (respuesta) => (respuesta === 'VOY' ? 'Voy' : 'No voy');
+
+async function serializarNotificacionEnVivo(notificacion) {
+  const json = typeof notificacion.toJSON === 'function'
+    ? notificacion.toJSON()
+    : notificacion;
+  const navegacion = await resolverNavegacion(json);
+  const notificacionSerializada = serializarNotificacion(json, navegacion);
+  return { json, navegacion, notificacionSerializada };
+}
+
+async function publicarNotificacionEnVivo(notificacion, usuarioId, { push = true } = {}) {
   try {
-    const json = typeof notificacion.toJSON === 'function'
-      ? notificacion.toJSON()
-      : notificacion;
-    const navegacion = await resolverNavegacion(json);
+    const { navegacion, notificacionSerializada } = await serializarNotificacionEnVivo(notificacion);
     const noLeidas = await contarNoLeidas(usuarioId);
-    const notificacionSerializada = serializarNotificacion(json, navegacion);
 
     emitNuevaNotificacion(usuarioId, {
       notificacion: notificacionSerializada,
       no_leidas: noLeidas,
     });
+
+    if (!push) return;
 
     // Nunca bloquear el request HTTP esperando Expo/FCM: si el push tarda o cuelga,
     // el cliente aborta y muestra "Error de conexión" aunque el write ya se guardó.
@@ -595,6 +620,47 @@ export async function notificarAnuncioClub({ anuncio, destinatarios = [], transa
   return results;
 }
 
+function mensajeRecordatorioPagoClub({ pago, club, concepto, manual = false }) {
+  const nombreConcepto = concepto?.nombre_personalizado?.trim()
+    || concepto?.tipo?.replace(/_/g, ' ').toLowerCase()
+    || 'pago';
+  const monto = concepto?.monto != null ? Number(concepto.monto) : null;
+  const montoTxt = monto != null && monto > 0 ? ` ($${monto.toLocaleString('es-CO')})` : '';
+  const prefijo = manual ? 'Recordatorio del club' : 'Recordatorio';
+  return `${prefijo}: tu **${nombreConcepto}**${montoTxt} en **${club.nombre}** vence el ${pago.fecha_corte}.`;
+}
+
+export async function notificarPagoClubProximo({ pago, club, concepto, transaction = null }) {
+  if (!pago?.usuario_id || !club?.id) return null;
+
+  return crearNotificacion({
+    usuarioId: pago.usuario_id,
+    tipo: TIPOS_NOTIFICACION.PAGO_CLUB_PROXIMO,
+    mensaje: mensajeRecordatorioPagoClub({ pago, club, concepto, manual: false }),
+    referenciaId: pago.id,
+    referenciaTipo: 'CLUB_PAGO_MIEMBRO',
+    transaction,
+  });
+}
+
+export async function notificarPagoClubRecordatorioManual({
+  pago,
+  club,
+  concepto,
+  transaction = null,
+}) {
+  if (!pago?.usuario_id || !club?.id) return null;
+
+  return crearNotificacion({
+    usuarioId: pago.usuario_id,
+    tipo: TIPOS_NOTIFICACION.PAGO_CLUB_PROXIMO,
+    mensaje: mensajeRecordatorioPagoClub({ pago, club, concepto, manual: true }),
+    referenciaId: pago.id,
+    referenciaTipo: 'CLUB_PAGO_MIEMBRO',
+    transaction,
+  });
+}
+
 export async function notificarComentarioPublicacion({
   publicacionId,
   autorPublicacionId,
@@ -750,6 +816,72 @@ export async function notificarConvocatoriaEntrenamiento({
     if (row) results.push(row);
   }
   return results;
+}
+
+/**
+ * Notifica al gestor del entrenamiento cuando un atleta confirma RSVP.
+ * Consolida en una sola notificación no leída por evento (se actualiza el mensaje).
+ */
+export async function notificarRsvpEntrenamiento({
+  eventoId,
+  gestorId,
+  atleta,
+  respuesta,
+  fechaHora,
+  resumenRsvp = {},
+  transaction = null,
+}) {
+  if (!eventoId || !gestorId || !respuesta) return null;
+
+  const nombreAtleta = displayName(atleta);
+  const respuestaTxt = etiquetaRespuestaRsvp(respuesta);
+  const fecha = formatFechaEntrenamiento(fechaHora);
+  const confirmados = resumenRsvp.confirmados ?? 0;
+  const noVan = resumenRsvp.no_van ?? 0;
+  const pendientes = resumenRsvp.sin_responder ?? 0;
+  const mensaje = `**${nombreAtleta}** confirmó **${respuestaTxt}** al entrenamiento del **${fecha}** · ${confirmados} Voy · ${noVan} No voy · ${pendientes} pendientes`;
+
+  const existente = await Notificaciones.findOne({
+    where: {
+      usuario_id: gestorId,
+      tipo: TIPOS_NOTIFICACION.RSVP_ENTRENAMIENTO,
+      referencia_id: eventoId,
+      referencia_tipo: 'CLUB_EVENTO',
+      leida: false,
+    },
+    order: [['created_at', 'DESC']],
+    transaction,
+  });
+
+  if (existente) {
+    await existente.update(
+      { mensaje, leida: false, vista_bandeja: false },
+      { transaction },
+    );
+
+    const schedulePublish = () => {
+      void publicarNotificacionEnVivo(existente, gestorId, { push: false }).catch((error) => {
+        console.error('Error publicando RSVP entrenamiento (async):', error);
+      });
+    };
+
+    if (transaction) {
+      transaction.afterCommit(schedulePublish);
+    } else {
+      schedulePublish();
+    }
+
+    return existente;
+  }
+
+  return crearNotificacion({
+    usuarioId: gestorId,
+    tipo: TIPOS_NOTIFICACION.RSVP_ENTRENAMIENTO,
+    mensaje,
+    referenciaId: eventoId,
+    referenciaTipo: 'CLUB_EVENTO',
+    transaction,
+  });
 }
 
 export async function notificarEntrenamientoFinalizado({
@@ -1037,7 +1169,24 @@ async function resolverNavegacion(notificacion) {
         },
       };
     }
+    case TIPOS_NOTIFICACION.PAGO_CLUB_PROXIMO:
+    case TIPOS_NOTIFICACION.PAGO_CLUB_VENCIDO: {
+      const pago = await ClubPagosMiembro.findByPk(notificacion.referencia_id, {
+        attributes: ['id'],
+        include: [{
+          model: ClubConceptosPago,
+          as: 'concepto',
+          attributes: ['id', 'club_id'],
+        }],
+      });
+      return {
+        ...base,
+        destino: 'ClubMisPagosUniformes',
+        params: { clubId: pago?.concepto?.club_id },
+      };
+    }
     case TIPOS_NOTIFICACION.CONVOCATORIA_ENTRENAMIENTO:
+    case TIPOS_NOTIFICACION.RSVP_ENTRENAMIENTO:
     case TIPOS_NOTIFICACION.ENTRENAMIENTO_FINALIZADO: {
       const evento = await ClubEventos.findByPk(notificacion.referencia_id, {
         attributes: ['id', 'club_division_id'],

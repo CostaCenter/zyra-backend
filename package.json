@@ -11,7 +11,11 @@
     "db:export-local": "node scripts/export-local-db-to-sql.mjs",
     "db:copy-to-railway": "node scripts/copy-local-db-to-railway.mjs",
     "db:import-seed": "node scripts/import-local-dump.mjs",
-    "db:seed-production": "node scripts/run-seed-production.mjs"
+    "db:seed-production": "node scripts/run-seed-production.mjs",
+    "push:verify-config": "node scripts/verificar-config-push.mjs",
+    "push:test-receipt": "node scripts/test-push-with-receipt.mjs",
+    "push:test-e2e": "node scripts/test-push-end-to-end.mjs",
+    "push:diagnostico": "node scripts/diagnostico-push-completo.mjs"
   },
   "keywords": [],
   "author": "",

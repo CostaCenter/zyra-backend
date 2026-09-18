@@ -10,6 +10,7 @@ import {
   Torneos,
   FaseTorneo,
   PartidoNominas,
+  PartidoJugadorStats,
 } from '../db/db.js';
 import {
   reducirMarcador,
@@ -117,11 +118,10 @@ const etiquetaFaseTorneo = (fase) => {
   return null;
 };
 
-export const calcularMvpPartido = async (partidoId) => {
+const calcularPuntosPorJugadorDesdeEventos = async (partidoId) => {
   const sportId = await resolverSportIdPartido(partidoId);
   const eventosValidos = await cargarEventosValidosPartido(partidoId);
   const mapaValores = await cargarMapaValoresAccion(sportId);
-
   const puntosPorJugador = new Map();
 
   for (const evento of eventosValidos) {
@@ -132,6 +132,78 @@ export const calcularMvpPartido = async (partidoId) => {
     if (puntos <= 0) continue;
     puntosPorJugador.set(jugadorId, (puntosPorJugador.get(jugadorId) ?? 0) + puntos);
   }
+
+  return puntosPorJugador;
+};
+
+/** Ranking de puntos personales por bando (local / visitante). */
+export const listarRankingPuntosPartido = async (
+  partidoId,
+  { participantes = [], practicaInterna = false } = {},
+) => {
+  const local = participantes.find((p) => p.es_local === true);
+  const visitante = participantes.find((p) => p.es_local === false);
+
+  const statsRows = await PartidoJugadorStats.findAll({
+    where: { partido_id: partidoId },
+    attributes: ['user_id', 'puntos_personales'],
+  });
+
+  const puntosPorUser = statsRows.length > 0
+    ? new Map(statsRows.map((s) => [s.user_id, s.puntos_personales ?? 0]))
+    : await calcularPuntosPorJugadorDesdeEventos(partidoId);
+
+  const nominas = await PartidoNominas.findAll({
+    where: { partido_id: partidoId, estado_validacion: 'VALIDADO' },
+    attributes: ['user_id', 'team_id', 'es_local', 'dorsal'],
+    include: [{
+      model: User,
+      as: 'jugador',
+      attributes: ['id', 'name', 'nick', 'photo'],
+    }],
+    order: [['set_numero', 'ASC'], ['dorsal', 'ASC']],
+  });
+
+  const construirRankingBando = (esLocal) => {
+    const teamId = esLocal
+      ? (local?.team_id ?? local?.equipo?.id)
+      : (visitante?.team_id ?? visitante?.equipo?.id);
+    if (!teamId) return [];
+
+    const porJugador = new Map();
+
+    nominas.forEach((nomina) => {
+      if (Number(nomina.team_id) !== Number(teamId)) return;
+      if (practicaInterna && nomina.es_local !== esLocal) return;
+
+      const userId = nomina.user_id;
+      if (porJugador.has(userId)) return;
+
+      const jugador = nomina.jugador;
+      porJugador.set(userId, {
+        user_id: userId,
+        nombre: jugador?.name || jugador?.nick || 'Jugador',
+        nick: jugador?.nick ?? null,
+        photo: jugador?.photo ?? null,
+        dorsal: nomina.dorsal ?? null,
+        puntos: puntosPorUser.get(userId) ?? 0,
+      });
+    });
+
+    return Array.from(porJugador.values()).sort(
+      (a, b) => b.puntos - a.puntos
+        || (parseInt(a.dorsal, 10) || 999) - (parseInt(b.dorsal, 10) || 999),
+    );
+  };
+
+  return {
+    local: construirRankingBando(true),
+    visitante: construirRankingBando(false),
+  };
+};
+
+export const calcularMvpPartido = async (partidoId) => {
+  const puntosPorJugador = await calcularPuntosPorJugadorDesdeEventos(partidoId);
 
   if (puntosPorJugador.size === 0) {
     return null;
@@ -360,9 +432,15 @@ export const obtenerDetalleMarcadorPartido = async (partidoId) => {
       }
     : null;
 
-  const mvp = esVoleySport(partidoJson.sport?.name)
+  const esVoley = esVoleySport(partidoJson.sport?.name);
+
+  const mvp = esVoley
     ? await calcularMvpPartido(partidoId)
     : null;
+
+  const ranking_puntos = esVoley
+    ? await listarRankingPuntosPartido(partidoId, { participantes, practicaInterna })
+    : { local: [], visitante: [] };
 
   const setActual = (parciales_sets?.length ?? 0) + 1;
   const reglasVoley = resolverReglasVoley(marcador?.reglas_arbitraje_snapshot ?? null);
@@ -453,6 +531,7 @@ export const obtenerDetalleMarcadorPartido = async (partidoId) => {
         },
     tarjetas,
     mvp,
+    ranking_puntos,
     historial_sustituciones,
     cambios: cambiosEnriquecidos,
   };

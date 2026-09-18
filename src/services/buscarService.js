@@ -13,6 +13,7 @@ import {
   obtenerUsuariosDestacados,
   obtenerPublicacionesRecientes,
 } from './destacadosService.js';
+import { mapUserForClient } from '../utils/userAvatar.js';
 
 const LIMITE = 5;
 const LIMITE_DESCUBRIR = 8;
@@ -71,12 +72,12 @@ export const buscarPersonas = async (query, userId, limite = LIMITE) => {
         { name: { [Op.iLike]: `%${q}%` } }
       ]
     },
-    attributes: ['id', 'nick', 'name', 'photo'],
+    attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
     order: [['nick', 'ASC']],
     limit: limite
   });
 
-  return usuarios.map((u) => u.toJSON());
+  return usuarios.map((u) => mapUserForClient(u));
 };
 
 export const buscarEquipos = async (query, limite = LIMITE) => {

@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { sequelize } from './db/db.js';
 import { seedProductionIfEmpty } from './utils/seedProductionIfEmpty.js';
 import { seedVictoryPlantelIfNeeded } from './utils/seedVictoryPlantel.js';
+import { iniciarClubPagosMaintenanceJob } from './jobs/clubPagosMaintenanceJob.js';
 import { resetPgSequences } from './utils/resetPgSequences.js';
 import { ensureClubSchema } from './utils/ensureClubSchema.js';
 import { initPartidoSocket, getSocketStatus } from './socket/partidoSocket.js';
@@ -31,6 +32,7 @@ import dispositivosPushRoutes from './routes/dispositivosPushRoutes.js';
 import buscarRoutes from './routes/buscarRoutes.js';
 import clubsRoutes from './routes/clubsRoutes.js';
 import interaccionSocialRoutes from './routes/interaccionSocialRoutes.js';
+import appRoutes from './routes/appRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -111,6 +113,7 @@ app.use('/api/dispositivos-push', dispositivosPushRoutes);
 app.use('/api/buscar', buscarRoutes);
 app.use('/api/clubs', clubsRoutes);
 app.use('/api/interacciones', interaccionSocialRoutes);
+app.use('/api/app', appRoutes);
 
 const server = http.createServer(app);
 initPartidoSocket(server);
@@ -133,6 +136,7 @@ seedProductionIfEmpty()
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
       console.log('📡 Socket.io activo en /socket.io (websocket + polling)');
+      iniciarClubPagosMaintenanceJob();
     });
   })
   .catch((err) => {

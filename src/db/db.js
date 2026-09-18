@@ -65,6 +65,11 @@ import clubMetricaEvaluacionModel from './models/clubMetricaEvaluacion.js';
 import clubEventoEvaluacionModel from './models/clubEventoEvaluacion.js';
 import clubDivisionAtletaModel from './models/clubDivisionAtleta.js';
 import clubDivisionInvitacionModel from './models/clubDivisionInvitacion.js';
+import clubConceptoPagoModel from './models/clubConceptoPago.js';
+import clubPagoMiembroModel from './models/clubPagoMiembro.js';
+import clubUniformeAsignacionModel from './models/clubUniformeAsignacion.js';
+import clubPrendaUniformeModel from './models/clubPrendaUniforme.js';
+import clubUniformeHistorialModel from './models/clubUniformeHistorial.js';
 import clubEventoEvaluacionDetalleModel from './models/clubEventoEvaluacionDetalle.js';
 import contenidoReaccionModel from './models/contenidoReaccion.js';
 import contenidoComentarioModel from './models/contenidoComentario.js';
@@ -135,6 +140,11 @@ const ClubMetricaEvaluacion = clubMetricaEvaluacionModel(sequelize);
 const ClubEventoEvaluacion = clubEventoEvaluacionModel(sequelize);
 const ClubDivisionAtletas = clubDivisionAtletaModel(sequelize);
 const ClubDivisionInvitaciones = clubDivisionInvitacionModel(sequelize);
+const ClubConceptosPago = clubConceptoPagoModel(sequelize);
+const ClubPagosMiembro = clubPagoMiembroModel(sequelize);
+const ClubUniformeAsignaciones = clubUniformeAsignacionModel(sequelize);
+const ClubPrendasUniforme = clubPrendaUniformeModel(sequelize);
+const ClubUniformeHistorial = clubUniformeHistorialModel(sequelize);
 const ClubEventoEvaluacionDetalle = clubEventoEvaluacionDetalleModel(sequelize);
 const ContenidoReacciones = contenidoReaccionModel(sequelize);
 const ContenidoComentarios = contenidoComentarioModel(sequelize);
@@ -578,6 +588,27 @@ ClubDivisiones.hasMany(ClubDivisionAtletas, { foreignKey: 'club_division_id', as
 ClubDivisionAtletas.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
 User.hasMany(ClubDivisionAtletas, { foreignKey: 'usuario_id', as: 'nominaDivisiones' });
 
+ClubConceptosPago.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubConceptosPago, { foreignKey: 'club_id', as: 'conceptosPago' });
+
+ClubPagosMiembro.belongsTo(ClubConceptosPago, { foreignKey: 'concepto_pago_id', as: 'concepto' });
+ClubConceptosPago.hasMany(ClubPagosMiembro, { foreignKey: 'concepto_pago_id', as: 'pagos' });
+ClubPagosMiembro.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+ClubPagosMiembro.belongsTo(User, { foreignKey: 'registrado_por_id', as: 'registradoPor' });
+
+ClubPrendasUniforme.belongsTo(Clubs, { foreignKey: 'club_id', as: 'club' });
+Clubs.hasMany(ClubPrendasUniforme, { foreignKey: 'club_id', as: 'prendasUniforme' });
+
+ClubUniformeAsignaciones.belongsTo(User, { foreignKey: 'usuario_id', as: 'usuario' });
+ClubUniformeAsignaciones.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
+ClubUniformeAsignaciones.belongsTo(ClubPrendasUniforme, { foreignKey: 'prenda_id', as: 'prenda' });
+ClubPrendasUniforme.hasMany(ClubUniformeAsignaciones, { foreignKey: 'prenda_id', as: 'asignaciones' });
+ClubDivisiones.hasMany(ClubUniformeAsignaciones, { foreignKey: 'club_division_id', as: 'uniformes' });
+
+ClubUniformeHistorial.belongsTo(ClubUniformeAsignaciones, { foreignKey: 'asignacion_id', as: 'asignacion' });
+ClubUniformeAsignaciones.hasMany(ClubUniformeHistorial, { foreignKey: 'asignacion_id', as: 'historial' });
+ClubUniformeHistorial.belongsTo(User, { foreignKey: 'registrado_por_id', as: 'registradoPor' });
+
 ClubDivisionInvitaciones.belongsTo(ClubDivisiones, { foreignKey: 'club_division_id', as: 'division' });
 ClubDivisiones.hasMany(ClubDivisionInvitaciones, { foreignKey: 'club_division_id', as: 'invitaciones' });
 ClubDivisionInvitaciones.belongsTo(User, { foreignKey: 'usuario_invitado_id', as: 'invitado' });
@@ -690,6 +721,11 @@ export {
   ClubEventoAsistencias,
   ClubDivisionAtletas,
   ClubDivisionInvitaciones,
+  ClubConceptosPago,
+  ClubPagosMiembro,
+  ClubUniformeAsignaciones,
+  ClubPrendasUniforme,
+  ClubUniformeHistorial,
   ClubMetricaEvaluacion,
   ClubEventoEvaluacion,
   ClubEventoEvaluacionDetalle,
