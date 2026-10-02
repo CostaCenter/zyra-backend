@@ -26,6 +26,7 @@ import {
 } from './puntosPersonalesService.js';
 import { construirHistorialSustitucionesSet, construirListaCambiosPartido } from './sustitucionesVoleyService.js';
 import { esPracticaInterna } from './partidoAmistosoService.js';
+import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
 
 const REGLAS_VOLEY_DEFAULT = {
   puntos_por_set: 25,
@@ -159,7 +160,7 @@ export const listarRankingPuntosPartido = async (
     include: [{
       model: User,
       as: 'jugador',
-      attributes: ['id', 'name', 'nick', 'photo'],
+      attributes: USER_PUBLIC_ATTRIBUTES,
     }],
     order: [['set_numero', 'ASC'], ['dorsal', 'ASC']],
   });
@@ -179,12 +180,13 @@ export const listarRankingPuntosPartido = async (
       const userId = nomina.user_id;
       if (porJugador.has(userId)) return;
 
-      const jugador = nomina.jugador;
+      const jugador = nomina.jugador ? mapUserForClient(nomina.jugador) : null;
       porJugador.set(userId, {
         user_id: userId,
         nombre: jugador?.name || jugador?.nick || 'Jugador',
         nick: jugador?.nick ?? null,
         photo: jugador?.photo ?? null,
+        foto_portada_url: jugador?.foto_portada_url ?? null,
         dorsal: nomina.dorsal ?? null,
         puntos: puntosPorUser.get(userId) ?? 0,
       });
@@ -233,7 +235,7 @@ export const calcularMvpPartido = async (partidoId) => {
       {
         model: User,
         as: 'jugador',
-        attributes: ['id', 'name', 'nick', 'photo'],
+        attributes: USER_PUBLIC_ATTRIBUTES,
       },
       {
         model: Team,
@@ -243,13 +245,15 @@ export const calcularMvpPartido = async (partidoId) => {
     ],
   });
 
-  const jugador = nomina?.jugador ?? await User.findByPk(mejorJugadorId, {
-    attributes: ['id', 'name', 'nick', 'photo'],
+  const jugadorRaw = nomina?.jugador ?? await User.findByPk(mejorJugadorId, {
+    attributes: USER_PUBLIC_ATTRIBUTES,
   });
 
-  if (!jugador) {
+  if (!jugadorRaw) {
     return null;
   }
+
+  const jugador = mapUserForClient(jugadorRaw);
 
   return {
     user_id: mejorJugadorId,
@@ -257,6 +261,7 @@ export const calcularMvpPartido = async (partidoId) => {
     nombre: jugador.name || jugador.nick || 'Jugador',
     nick: jugador.nick ?? null,
     photo: jugador.photo ?? null,
+    foto_portada_url: jugador.foto_portada_url ?? null,
     team_id: nomina?.team_id ?? null,
     equipo: nomina?.equipo
       ? {
@@ -367,7 +372,7 @@ export const obtenerDetalleMarcadorPartido = async (partidoId) => {
       {
         model: User,
         as: 'arbitro',
-        attributes: ['id', 'name', 'nick', 'photo'],
+        attributes: USER_PUBLIC_ATTRIBUTES,
         required: false,
       },
       {

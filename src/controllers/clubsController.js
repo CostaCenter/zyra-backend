@@ -35,9 +35,46 @@ import {
   sincronizarEquipoANominaDivision,
   eliminarDivisionClub,
 } from '../services/clubGestionService.js';
+import { formatearRangoEdadDivision } from '../utils/divisionEligibility.js';
 
 const RESPUESTAS_VALIDAS = ['ACEPTADA', 'RECHAZADA'];
 const GENEROS_VALIDOS = ['MASCULINO', 'FEMENINO', 'MIXTO'];
+
+const parseEdad = (value) => {
+  if (value == null || value === '') return null;
+  const n = parseInt(value, 10);
+  return Number.isNaN(n) ? null : n;
+};
+
+const resolverRangoEdadDivision = (body, { allowPartial = false } = {}) => {
+  const edadMinima = parseEdad(body?.edad_minima);
+  const edadMaxima = parseEdad(body?.edad_maxima);
+
+  if (edadMinima == null && edadMaxima == null) {
+    return {
+      edad_minima: null,
+      edad_maxima: null,
+      categoria_edad: body?.categoria_edad?.trim() || null,
+    };
+  }
+
+  if (edadMinima == null || edadMaxima == null) {
+    if (allowPartial) {
+      return { edad_minima: edadMinima, edad_maxima: edadMaxima };
+    }
+    return { error: 'edad_minima y edad_maxima deben enviarse juntas' };
+  }
+
+  if (edadMinima > edadMaxima) {
+    return { error: 'edad_minima no puede ser mayor que edad_maxima' };
+  }
+
+  return {
+    edad_minima: edadMinima,
+    edad_maxima: edadMaxima,
+    categoria_edad: formatearRangoEdadDivision(edadMinima, edadMaxima),
+  };
+};
 
 const includeSolicitud = [
   {
@@ -192,8 +229,11 @@ export const createDivision = async (req, res) => {
     }
 
     const nombre = req.body?.nombre?.trim();
-    const categoriaEdad = req.body?.categoria_edad?.trim() || null;
     const encargadoId = parseId(req.body?.encargado_id);
+    const rangoEdad = resolverRangoEdadDivision(req.body);
+    if (rangoEdad.error) {
+      return res.status(400).json({ success: false, message: rangoEdad.error });
+    }
 
     let genero = null;
     if (req.body?.genero != null && String(req.body.genero).trim() !== '') {
@@ -218,7 +258,9 @@ export const createDivision = async (req, res) => {
       club_id: clubId,
       nombre,
       genero,
-      categoria_edad: categoriaEdad,
+      categoria_edad: rangoEdad.categoria_edad,
+      edad_minima: rangoEdad.edad_minima,
+      edad_maxima: rangoEdad.edad_maxima,
       encargado_id: encargadoId,
     });
 
@@ -268,7 +310,21 @@ export const updateDivision = async (req, res) => {
         updates.genero = genero;
       }
     }
-    if (req.body?.categoria_edad !== undefined) {
+    if (req.body?.edad_minima !== undefined || req.body?.edad_maxima !== undefined) {
+      const rangoEdad = resolverRangoEdadDivision(req.body, { allowPartial: true });
+      if (rangoEdad.error) {
+        return res.status(400).json({ success: false, message: rangoEdad.error });
+      }
+      if (rangoEdad.edad_minima != null && rangoEdad.edad_maxima != null) {
+        updates.edad_minima = rangoEdad.edad_minima;
+        updates.edad_maxima = rangoEdad.edad_maxima;
+        updates.categoria_edad = rangoEdad.categoria_edad;
+      } else if (req.body?.edad_minima === null && req.body?.edad_maxima === null) {
+        updates.edad_minima = null;
+        updates.edad_maxima = null;
+        updates.categoria_edad = req.body?.categoria_edad?.trim() || null;
+      }
+    } else if (req.body?.categoria_edad !== undefined) {
       updates.categoria_edad = req.body.categoria_edad?.trim() || null;
     }
     if (req.body?.encargado_id !== undefined) {
@@ -302,9 +358,14 @@ export const deleteDivision = async (req, res) => {
   try {
     const clubId = parseId(req.params.club_id);
     const divisionId = parseId(req.params.division_id);
-    const result = await eliminarDivisionClub(clubId, divisionId, req.userId);
+    const cascada = req.query.cascada === '1' || req.query.cascada === 'true';
+    const result = await eliminarDivisionClub(clubId, divisionId, req.userId, { cascada });
     if (!result.ok) {
-      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+      return res.status(result.status ?? 400).json({
+        success: false,
+        message: result.error,
+        requiere_cascada: Boolean(result.requiere_cascada),
+      });
     }
     return res.status(200).json({ success: true, message: 'División eliminada' });
   } catch (error) {

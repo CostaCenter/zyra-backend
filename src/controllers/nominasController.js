@@ -27,6 +27,7 @@ import {
 import { notificarMarcadorEnVivo } from '../services/marcadorEnVivoNotifyService.js';
 import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
 import { esPracticaInterna } from '../services/partidoAmistosoService.js';
+import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -40,7 +41,7 @@ const includeNominaCompleta = [
   {
     model: User,
     as: 'jugador',
-    attributes: ['id', 'name', 'nick']
+    attributes: USER_PUBLIC_ATTRIBUTES,
   },
   {
     model: Team,
@@ -50,9 +51,18 @@ const includeNominaCompleta = [
   {
     model: User,
     as: 'validadoPor',
-    attributes: ['id', 'name', 'nick']
+    attributes: USER_PUBLIC_ATTRIBUTES,
   }
 ];
+
+const serializarNomina = (nomina) => {
+  const json = typeof nomina.toJSON === 'function' ? nomina.toJSON() : nomina;
+  return {
+    ...json,
+    jugador: json.jugador ? mapUserForClient(json.jugador) : null,
+    validadoPor: json.validadoPor ? mapUserForClient(json.validadoPor) : null,
+  };
+};
 
 const mensajeUniqueConstraintNomina = (error) => {
   const constraint = String(error?.parent?.constraint ?? error?.fields ?? '');
@@ -179,7 +189,7 @@ export const proponerNomina = async (req, res) => {
     const practicaInterna = esPracticaInterna(participantesPartido);
     const esArbitro = partido.arbitro_asignado_id === req.userId;
 
-    // Torneo / amistoso normal: solo capitán. Práctica/fogueo: capitán o árbitro (entrenador).
+    // Torneo / amistoso: capitán o árbitro asignado. Práctica/fogueo: capitán o entrenador (árbitro).
     if (practicaInterna) {
       if (!esArbitro && equipo.capitan_id !== req.userId) {
         return res.status(403).json({
@@ -187,10 +197,15 @@ export const proponerNomina = async (req, res) => {
           message: 'Solo el entrenador (árbitro) o el capitán puede configurar la nómina',
         });
       }
-    } else if (equipo.capitan_id !== req.userId) {
+    } else if (!esArbitro && equipo.capitan_id !== req.userId) {
       return res.status(403).json({
         success: false,
-        message: 'Solo el capitán del equipo puede enviar la alineación'
+        message: 'Solo el capitán del equipo o el árbitro asignado puede enviar la alineación',
+      });
+    } else if (esArbitro && partido.arbitro_asignado_id == null) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el árbitro asignado al partido puede definir la alineación',
       });
     }
 
@@ -223,8 +238,8 @@ export const proponerNomina = async (req, res) => {
     }
 
     const esLocalBando = participacion.es_local;
-    // En fogueo el entrenador confirma al armar: sin paso "enviar al árbitro".
-    const autoValidar = practicaInterna && esArbitro;
+    // Capitán envía al árbitro; el árbitro asignado confirma al guardar (sin esperar al capitán).
+    const autoValidar = esArbitro;
 
     const jugadores = req.body?.jugadores;
     const validacionAlineacion = validarPayloadAlineacionUnificada(jugadores);
@@ -369,18 +384,38 @@ export const proponerNomina = async (req, res) => {
       attributes: ['id', 'estado_validacion'],
     });
 
-    if (nominasExistentes.some((n) => n.estado_validacion === 'PENDIENTE')) {
+    if (
+      nominasExistentes.some((n) => n.estado_validacion === 'PENDIENTE')
+      && !esArbitro
+    ) {
       return res.status(409).json({
         success: false,
-        message: 'Ya hay una alineación pendiente de validación para este equipo'
+        message: 'Ya hay una alineación pendiente de validación para este equipo',
       });
     }
 
-    if (nominasExistentes.some((n) => n.estado_validacion === 'VALIDADO')) {
+    if (
+      nominasExistentes.some((n) => n.estado_validacion === 'VALIDADO')
+      && !esArbitro
+    ) {
       return res.status(409).json({
         success: false,
-        message: 'La alineación de este equipo ya fue validada'
+        message: 'La alineación de este equipo ya fue validada',
       });
+    }
+
+    if (esEnCurso && esArbitro && nominasExistentes.some((n) => n.estado_validacion === 'VALIDADO')) {
+      const marcadorEnCurso = await MarcadoresDetalle.findOne({
+        where: { partido_id: partidoId },
+        attributes: ['puntos_favor', 'puntos_contra'],
+      });
+      const puntosEnSet = (marcadorEnCurso?.puntos_favor ?? 0) + (marcadorEnCurso?.puntos_contra ?? 0);
+      if (puntosEnSet > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No se puede cambiar la alineación del set después de que empezó a jugarse',
+        });
+      }
     }
 
     const nominasCreadas = await sequelize.transaction(async (transaction) => {
@@ -469,7 +504,7 @@ export const proponerNomina = async (req, res) => {
       return creadas;
     });
 
-    if (!practicaInterna) {
+    if (!practicaInterna && !autoValidar) {
       scheduleSideEffect('nomina-propuesta', () => notificarNominaPropuesta({
         partidoId,
         arbitroId: partido.arbitro_asignado_id,
@@ -495,7 +530,7 @@ export const proponerNomina = async (req, res) => {
       message: autoValidar
         ? `Nómina del set ${setNumero} confirmada`
         : 'Alineación enviada al árbitro',
-      data: nominasCreadas.map((n) => n.toJSON()),
+      data: nominasCreadas.map(serializarNomina),
       ...(autoValidar
         ? {
             marcador: (await MarcadoresDetalle.findOne({
@@ -743,7 +778,7 @@ export const validarNomina = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `Alineación set ${setNumero} ${resultado.toLowerCase()}`,
-      data: nominasActualizadas.map((n) => n.toJSON()),
+      data: nominasActualizadas.map(serializarNomina),
     });
   } catch (error) {
     console.error('Error en validarNomina:', error);
@@ -791,7 +826,7 @@ export const listarNominasPartido = async (req, res) => {
     return res.status(200).json({
       success: true,
       total: nominas.length,
-      data: nominas.map((n) => n.toJSON())
+      data: nominas.map(serializarNomina),
     });
   } catch (error) {
     console.error('Error en listarNominasPartido:', error);

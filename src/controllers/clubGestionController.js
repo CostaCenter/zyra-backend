@@ -5,6 +5,7 @@ import {
   obtenerAnuncioClub,
   eliminarAnuncioClub,
   crearAnuncioClub,
+  actualizarImportanciaAnuncio,
   listarEventosDivision,
   crearEventoDivision,
   listarEntrenamientosClub,
@@ -35,6 +36,9 @@ import {
   listarMembresiaSolicitudes,
   obtenerMembresiaSolicitudDetalle,
   responderMembresiaSolicitud,
+  listarAtletasClub,
+  obtenerPerfilAtletaClub,
+  actualizarDatosPersonalesAtleta,
 } from '../services/clubGestionService.js';
 import { parseId, usuarioPuedeGestionarClub } from '../services/clubsService.js';
 import { Clubs } from '../db/db.js';
@@ -42,6 +46,10 @@ import {
   subirImagenPerfil,
   formatearErrorCloudinary,
 } from '../services/cloudinaryService.js';
+import {
+  obtenerMetricasRetencionSemana,
+  obtenerMetricasRetencionHistorico,
+} from '../services/clubRetencionService.js';
 
 const parseEncuestaBody = (raw) => {
   if (!raw) return null;
@@ -78,6 +86,61 @@ export const getMiembrosClub = async (req, res) => {
   } catch (error) {
     console.error('Error en getMiembrosClub:', error);
     return res.status(500).json({ success: false, message: 'Error al listar miembros' });
+  }
+};
+
+export const getAtletasClub = async (req, res) => {
+  try {
+    const clubId = parseId(req.params.club_id);
+    const permisos = await usuarioPuedeGestionarClub(clubId, req.userId);
+    if (!permisos.puede) {
+      return res.status(403).json({ success: false, message: 'Sin permiso' });
+    }
+
+    const result = await listarAtletasClub(clubId);
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+    }
+
+    return res.status(200).json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error en getAtletasClub:', error);
+    return res.status(500).json({ success: false, message: 'Error al listar atletas' });
+  }
+};
+
+export const getAtletaPerfilClub = async (req, res) => {
+  try {
+    const clubId = parseId(req.params.club_id);
+    const atletaId = parseId(req.params.atleta_id);
+    const result = await obtenerPerfilAtletaClub(clubId, atletaId, req.userId);
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+    }
+    return res.status(200).json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error en getAtletaPerfilClub:', error);
+    return res.status(500).json({ success: false, message: 'Error al obtener perfil del atleta' });
+  }
+};
+
+export const putAtletaDatosPersonalesClub = async (req, res) => {
+  try {
+    const clubId = parseId(req.params.club_id);
+    const atletaId = parseId(req.params.atleta_id);
+    const result = await actualizarDatosPersonalesAtleta(
+      clubId,
+      atletaId,
+      req.userId,
+      req.body ?? {},
+    );
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+    }
+    return res.status(200).json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error en putAtletaDatosPersonalesClub:', error);
+    return res.status(500).json({ success: false, message: 'Error al guardar datos personales' });
   }
 };
 
@@ -202,6 +265,22 @@ export const deleteAnuncioClub = async (req, res) => {
   }
 };
 
+export const patchImportanciaAnuncioClub = async (req, res) => {
+  try {
+    const clubId = parseId(req.params.club_id);
+    const anuncioId = parseId(req.params.anuncio_id);
+    const importancia = req.body?.importancia?.toUpperCase?.() ?? 'NORMAL';
+    const result = await actualizarImportanciaAnuncio(clubId, anuncioId, req.userId, importancia);
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+    }
+    return res.status(200).json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error en patchImportanciaAnuncioClub:', error);
+    return res.status(500).json({ success: false, message: 'Error al actualizar importancia' });
+  }
+};
+
 export const postAnuncioClub = async (req, res) => {
   try {
     const clubId = parseId(req.params.club_id);
@@ -284,6 +363,12 @@ export const postEventoDivision = async (req, res) => {
     const descripcion = req.body?.descripcion?.trim() || null;
     const fechaHora = req.body?.fecha_hora;
     const fechaHoraFin = req.body?.fecha_hora_fin || null;
+    const duracionMinutos = req.body?.duracion_minutos != null
+      ? Number(req.body.duracion_minutos)
+      : null;
+    const utcOffsetMinutos = req.body?.utc_offset_minutos != null
+      ? Number(req.body.utc_offset_minutos)
+      : null;
     const lugar = req.body?.lugar?.trim() || null;
     const diasRecurrencia = Array.isArray(req.body?.dias_recurrencia)
       ? req.body.dias_recurrencia
@@ -313,6 +398,8 @@ export const postEventoDivision = async (req, res) => {
       descripcion,
       fechaHora,
       fechaHoraFin,
+      duracionMinutos,
+      utcOffsetMinutos,
       lugar,
       diasRecurrencia,
       enfoqueSesion,
@@ -386,6 +473,9 @@ export const putEventoEntrenamiento = async (req, res) => {
       userId: req.userId,
       fechaHora: req.body?.fecha_hora,
       fechaHoraFin: req.body?.fecha_hora_fin,
+      duracionMinutos: req.body?.duracion_minutos != null
+        ? Number(req.body.duracion_minutos)
+        : null,
       lugar: req.body?.lugar,
       descripcion: req.body?.descripcion,
     });
@@ -508,6 +598,38 @@ export const getMetricasClub = async (req, res) => {
   } catch (error) {
     console.error('Error en getMetricasClub:', error);
     return res.status(500).json({ success: false, message: 'Error al listar métricas' });
+  }
+};
+
+export const getMetricasRetencionHistoricoClub = async (req, res) => {
+  try {
+    const clubId = parseId(req.params.club_id);
+    const result = await obtenerMetricasRetencionHistorico(clubId, req.userId);
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+    }
+    return res.status(200).json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error en getMetricasRetencionHistoricoClub:', error);
+    return res.status(500).json({ success: false, message: 'Error al obtener histórico de retención' });
+  }
+};
+
+export const getMetricasRetencionClub = async (req, res) => {
+  try {
+    const clubId = parseId(req.params.club_id);
+    const semana = req.query.semana;
+    if (!semana) {
+      return res.status(400).json({ success: false, message: 'Query semana (YYYY-MM-DD) es obligatorio' });
+    }
+    const result = await obtenerMetricasRetencionSemana(clubId, req.userId, semana);
+    if (!result.ok) {
+      return res.status(result.status ?? 400).json({ success: false, message: result.error });
+    }
+    return res.status(200).json({ success: true, data: result.data });
+  } catch (error) {
+    console.error('Error en getMetricasRetencionClub:', error);
+    return res.status(500).json({ success: false, message: 'Error al calcular métricas de retención' });
   }
 };
 
@@ -845,7 +967,11 @@ export const putPlantillaEquipoDivision = async (req, res) => {
     if (!result.ok) {
       return res.status(result.status ?? 400).json({ success: false, message: result.error });
     }
-    return res.status(200).json({ success: true, message: 'Plantilla actualizada' });
+    return res.status(200).json({
+      success: true,
+      message: 'Plantilla actualizada',
+      data: result.data ?? null,
+    });
   } catch (error) {
     console.error('Error en putPlantillaEquipoDivision:', error);
     return res.status(500).json({ success: false, message: 'Error al actualizar plantilla' });

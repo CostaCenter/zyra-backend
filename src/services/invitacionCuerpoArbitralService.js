@@ -1,4 +1,12 @@
-import { Torneos, TorneoArbitros, User, Sports } from '../db/db.js';
+import {
+  Torneos,
+  TorneoArbitros,
+  User,
+  Sports,
+  Complejos,
+  Clubs,
+  FaseTorneo,
+} from '../db/db.js';
 
 const RESPUESTAS_VALIDAS = ['CONFIRMADO', 'RECHAZADO'];
 
@@ -16,16 +24,42 @@ export async function obtenerDetalleInvitacionCuerpoArbitral(torneoId, registroI
           'id',
           'nombre',
           'fecha_hora_inicio',
+          'lugar',
+          'complejo_id',
           'photo',
           'imagen_portada_url',
           'creado_por_user_id',
+          'club_organizador_id',
         ],
-        include: [{
-          model: Sports,
-          as: 'sport',
-          attributes: ['id', 'name'],
-          required: false,
-        }],
+        include: [
+          {
+            model: Sports,
+            as: 'sport',
+            attributes: ['id', 'name'],
+            required: false,
+          },
+          {
+            model: Complejos,
+            as: 'complejo',
+            attributes: ['id', 'nombre', 'ubicacion'],
+            required: false,
+          },
+          {
+            model: Clubs,
+            as: 'clubOrganizador',
+            attributes: ['id', 'nombre', 'logo_url'],
+            required: false,
+          },
+          {
+            model: FaseTorneo,
+            as: 'fases',
+            attributes: ['id', 'tipo_formato', 'orden'],
+            required: false,
+            separate: true,
+            order: [['orden', 'ASC']],
+            limit: 1,
+          },
+        ],
       },
     ],
   });
@@ -60,9 +94,26 @@ export async function obtenerDetalleInvitacionCuerpoArbitral(torneoId, registroI
         id: torneoJson.id,
         nombre: torneoJson.nombre,
         fecha_hora_inicio: torneoJson.fecha_hora_inicio,
+        lugar: torneoJson.lugar ?? null,
         photo: torneoJson.photo,
         imagen_portada_url: torneoJson.imagen_portada_url,
         sport: torneoJson.sport ?? null,
+        complejo: torneoJson.complejo
+          ? {
+              id: torneoJson.complejo.id,
+              nombre: torneoJson.complejo.nombre,
+              ubicacion: torneoJson.complejo.ubicacion ?? null,
+            }
+          : null,
+        club: torneoJson.clubOrganizador
+          ? {
+              id: torneoJson.clubOrganizador.id,
+              nombre: torneoJson.clubOrganizador.nombre,
+              logo_url: torneoJson.clubOrganizador.logo_url ?? null,
+            }
+          : null,
+        fases: torneoJson.fases ?? [],
+        tipo_formato: torneoJson.fases?.[0]?.tipo_formato ?? null,
       },
       organizador: organizador
         ? {

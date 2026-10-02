@@ -88,11 +88,14 @@ export const deleteDestacadoClub = async (req, res) => {
 
 export const postDestacadoItem = async (req, res) => {
   try {
+    const trimStartSec = req.body?.trim_start_sec;
+    const trimEndSec = req.body?.trim_end_sec;
     const data = await agregarItemDestacado(
       req.params.club_id,
       req.params.destacado_id,
       req.userId,
       req.file,
+      { trimStartSec, trimEndSec },
     );
     return res.status(201).json({
       success: true,

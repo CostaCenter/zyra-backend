@@ -77,6 +77,7 @@ import contenidoReporteModel from './models/contenidoReporte.js';
 import encuestaModel from './models/encuesta.js';
 import encuestaOpcionModel from './models/encuestaOpcion.js';
 import encuestaVotoModel from './models/encuestaVoto.js';
+import userActivityEventModel from './models/userActivityEvent.js';
 
 // Inicializar modelos
 const Usuarios = usuariosModel(sequelize);
@@ -152,6 +153,7 @@ const ContenidoReportes = contenidoReporteModel(sequelize);
 const Encuestas = encuestaModel(sequelize);
 const EncuestaOpciones = encuestaOpcionModel(sequelize);
 const EncuestaVotos = encuestaVotoModel(sequelize);
+const UserActivityEvents = userActivityEventModel(sequelize);
 
 // ============================================
 // DEFINIR TODAS LAS RELACIONES (ASSOCIATIONS)
@@ -737,5 +739,6 @@ export {
   Encuestas,
   EncuestaOpciones,
   EncuestaVotos,
+  UserActivityEvents,
 };
 

@@ -226,6 +226,20 @@ const enriquecerPublicacionesFeed = async (publicaciones, viewerUserId) => {
   });
 };
 
+export const obtenerPublicacionPorId = async (publicacionId, viewerUserId = null) => {
+  const id = parseInt(publicacionId, 10);
+  if (Number.isNaN(id)) return null;
+
+  const publicacion = await Publicaciones.findByPk(id, {
+    include: includePublicacion,
+  });
+
+  if (!publicacion) return null;
+
+  const [enriched] = await enriquecerPublicacionesFeed([publicacion], viewerUserId);
+  return enriched ?? null;
+};
+
 export const obtenerPublicacionesFeed = async ({
   cursorId = null,
   limite = LIMITE_DEFAULT,

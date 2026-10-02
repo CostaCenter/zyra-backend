@@ -33,6 +33,7 @@ import buscarRoutes from './routes/buscarRoutes.js';
 import clubsRoutes from './routes/clubsRoutes.js';
 import interaccionSocialRoutes from './routes/interaccionSocialRoutes.js';
 import appRoutes from './routes/appRoutes.js';
+import { diagnosticarPushUsuario } from './controllers/pushDiagnosticoController.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -89,6 +90,8 @@ app.get('/health/socket', (req, res) => {
   const status = getSocketStatus();
   res.status(status.ready ? 200 : 503).json({ ok: status.ready, ...status });
 });
+
+app.post('/health/push-diagnostico', diagnosticarPushUsuario);
 
 app.use('/auth', authRoutes);
 app.use('/api/complexes', complexRoutes);

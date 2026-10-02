@@ -18,9 +18,13 @@ import {
 import {
   getNovedadesClubes,
   getMiembrosClub,
+  getAtletasClub,
+  getAtletaPerfilClub,
+  putAtletaDatosPersonalesClub,
   getAnunciosClub,
   getAnuncioClub,
   deleteAnuncioClub,
+  patchImportanciaAnuncioClub,
   postAnuncioClub,
   getEventosDivision,
   postEventoDivision,
@@ -44,6 +48,8 @@ import {
   putPlantillaEquipoDivision,
   postAsistenciaEvento,
   getMetricasClub,
+  getMetricasRetencionClub,
+  getMetricasRetencionHistoricoClub,
   postEvaluacionEvento,
   postPracticaDivision,
   postIniciarFogueoEvento,
@@ -130,6 +136,9 @@ router.delete(
 );
 
 router.get('/:club_id/miembros', verifyToken, getMiembrosClub);
+router.get('/:club_id/atletas', verifyToken, getAtletasClub);
+router.get('/:club_id/atletas/:atleta_id/perfil', verifyToken, getAtletaPerfilClub);
+router.put('/:club_id/atletas/:atleta_id/datos-personales', verifyToken, putAtletaDatosPersonalesClub);
 
 router.get('/:club_id/conceptos-pago', verifyToken, getConceptosPagoClub);
 router.post('/:club_id/conceptos-pago', verifyToken, postConceptoPagoClub);
@@ -152,12 +161,15 @@ router.get('/:club_id/mi-uniforme', verifyToken, getMiUniformeClub);
 router.get('/:club_id/anuncios', verifyToken, getAnunciosClub);
 router.get('/:club_id/anuncios/:anuncio_id', verifyToken, getAnuncioClub);
 router.delete('/:club_id/anuncios/:anuncio_id', verifyToken, deleteAnuncioClub);
+router.patch('/:club_id/anuncios/:anuncio_id/importancia', verifyToken, patchImportanciaAnuncioClub);
 router.post(
   '/:club_id/anuncios',
   verifyToken,
   withUpload(uploadAnuncioImagen),
   postAnuncioClub,
 );
+router.get('/:club_id/metricas-retencion/historico', verifyToken, getMetricasRetencionHistoricoClub);
+router.get('/:club_id/metricas-retencion', verifyToken, getMetricasRetencionClub);
 router.get('/:club_id/metricas', verifyToken, getMetricasClub);
 
 router.post('/:club_id/divisiones', verifyToken, createDivision);

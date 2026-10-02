@@ -35,6 +35,11 @@ const CRITICAL_FILES = [
   '061_club_whatsapp_plantilla_pago.sql',
   '062_club_metricas_voley_ampliadas.sql',
   '063_evaluacion_calificacion_0_100.sql',
+  '064_club_atleta_datos_personales.sql',
+  '065_user_fecha_nacimiento_genero.sql',
+  '066_club_division_edad_rango.sql',
+  '067_torneo_inscripciones_abiertas.sql',
+  '068_user_activity_retention.sql',
 ];
 
 /** Partir SQL en statements; conserva bloques DO $$ ... $$; */

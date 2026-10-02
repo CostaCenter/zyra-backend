@@ -16,6 +16,7 @@ import {
 } from '../db/db.js';
 import { notificarEtiquetaPendiente } from './notificacionesService.js';
 import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
+import { scheduleRecordUserActivity } from './userActivityService.js';
 import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
 
 const parseJsonArray = (value) => {
@@ -239,77 +240,24 @@ const filtrarPublicacionesPorDeporte = (publicaciones, sportId) => {
   });
 };
 
-/** Publicaciones de miembros aceptados del equipo + publicaciones como equipo. */
-export const listarPublicacionesDeEquipo = async (teamId, memberIds, sportId) => {
-  const wherePropias = memberIds.length
-    ? { user_id: { [Op.in]: memberIds } }
-    : null;
+/** Publicaciones publicadas en el perfil del equipo (equipo_id). */
+export const listarPublicacionesDeEquipo = async (teamId, sportId) => {
+  const publicaciones = await Publicaciones.findAll({
+    where: { equipo_id: teamId },
+    include: [
+      {
+        model: User,
+        as: 'autor',
+        attributes: USER_PUBLIC_ATTRIBUTES,
+        required: false,
+      },
+      ...includesPublicacionDeportes,
+    ],
+    order: [['creado_at', 'DESC']],
+    limit: 80,
+  });
 
-  const [propias, comoEquipo, etiquetas] = await Promise.all([
-    wherePropias
-      ? Publicaciones.findAll({
-          where: wherePropias,
-          include: [
-            {
-              model: User,
-              as: 'autor',
-              attributes: USER_PUBLIC_ATTRIBUTES,
-              required: false,
-            },
-            ...includesPublicacionDeportes,
-          ],
-          order: [['creado_at', 'DESC']],
-          limit: 80,
-        })
-      : [],
-    Publicaciones.findAll({
-      where: { equipo_id: teamId },
-      include: [
-        {
-          model: User,
-          as: 'autor',
-          attributes: USER_PUBLIC_ATTRIBUTES,
-          required: false,
-        },
-        ...includesPublicacionDeportes,
-      ],
-      order: [['creado_at', 'DESC']],
-      limit: 80,
-    }),
-    memberIds.length
-      ? PublicacionEtiquetas.findAll({
-          where: { user_id_etiquetado: { [Op.in]: memberIds }, confirmado: true },
-          include: [{
-            model: Publicaciones,
-            as: 'publicacion',
-            include: [
-              {
-                model: User,
-                as: 'autor',
-                attributes: USER_PUBLIC_ATTRIBUTES,
-                required: false,
-              },
-              ...includesPublicacionDeportes,
-            ],
-          }],
-        })
-      : [],
-  ]);
-
-  const unicas = [];
-  const vistos = new Set();
-  const agregar = (pub) => {
-    if (!pub || vistos.has(pub.id)) return;
-    vistos.add(pub.id);
-    unicas.push(pub);
-  };
-
-  propias.forEach(agregar);
-  comoEquipo.forEach(agregar);
-  etiquetas.forEach((row) => agregar(row.publicacion));
-
-  unicas.sort((a, b) => new Date(b.creado_at) - new Date(a.creado_at));
-  return filtrarPublicacionesPorDeporte(unicas, sportId).map(serializarPublicacion);
+  return filtrarPublicacionesPorDeporte(publicaciones, sportId).map(serializarPublicacion);
 };
 
 /** Publicaciones de otros usuarios donde este jugador fue etiquetado (confirmado). */
@@ -501,6 +449,16 @@ export const crearPublicacionConRelaciones = async ({
         });
       }
     }
+
+    const publicacionId = publicacion.id;
+    transaction.afterCommit(() => {
+      scheduleRecordUserActivity({
+        usuarioId: userId,
+        tipo: 'PUBLICACION_CREADA',
+        entidadTipo: 'PUBLICACION',
+        entidadId: publicacionId,
+      });
+    });
 
     return publicacion;
   });

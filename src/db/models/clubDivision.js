@@ -30,6 +30,14 @@ export default (sequelize) => {
       type: DataTypes.STRING(64),
       allowNull: true,
     },
+    edad_minima: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+    },
+    edad_maxima: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+    },
     encargado_id: {
       type: DataTypes.INTEGER,
       allowNull: true,

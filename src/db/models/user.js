@@ -46,6 +46,15 @@ export default (sequelize) => {
       unique: true,
       comment: 'Para Login por teléfono'
     },
+    fecha_nacimiento: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    genero: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      comment: 'MASCULINO, FEMENINO, NO_ESPECIFICADO',
+    },
     password_hash: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -74,6 +83,10 @@ export default (sequelize) => {
     last_login: {
       type: DataTypes.DATE,
       allowNull: true
+    },
+    last_active_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     es_dato_prueba: {
       type: DataTypes.BOOLEAN,

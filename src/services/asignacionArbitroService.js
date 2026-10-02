@@ -46,8 +46,14 @@ export async function obtenerDetalleAsignacionArbitro(partidoId, arbitroUserId) 
       {
         model: Torneos,
         as: 'torneo',
-        attributes: ['id', 'nombre', 'creado_por_user_id'],
+        attributes: ['id', 'nombre', 'lugar', 'complejo_id', 'creado_por_user_id'],
         required: false,
+        include: [{
+          model: Complejos,
+          as: 'complejo',
+          attributes: ['id', 'nombre', 'ubicacion'],
+          required: false,
+        }],
       },
       {
         model: Canchas,
@@ -97,7 +103,18 @@ export async function obtenerDetalleAsignacionArbitro(partidoId, arbitroUserId) 
         arbitro_confirmacion_estado: partidoJson.arbitro_confirmacion_estado ?? 'PENDIENTE',
         sport: partidoJson.sport ?? null,
         torneo: partidoJson.torneo
-          ? { id: partidoJson.torneo.id, nombre: partidoJson.torneo.nombre }
+          ? {
+              id: partidoJson.torneo.id,
+              nombre: partidoJson.torneo.nombre,
+              lugar: partidoJson.torneo.lugar ?? null,
+              complejo: partidoJson.torneo.complejo
+                ? {
+                    id: partidoJson.torneo.complejo.id,
+                    nombre: partidoJson.torneo.complejo.nombre,
+                    ubicacion: partidoJson.torneo.complejo.ubicacion ?? null,
+                  }
+                : null,
+            }
           : null,
         equipo_local: local?.equipo ?? null,
         equipo_visitante: visitante?.equipo ?? null,

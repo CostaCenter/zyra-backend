@@ -15,6 +15,13 @@ export const validarTorneoAceptaInscripciones = (torneo) => {
     };
   }
 
+  if (torneo.inscripciones_abiertas === false) {
+    return {
+      status: 400,
+      message: 'Las inscripciones están cerradas en este torneo'
+    };
+  }
+
   return null;
 };
 

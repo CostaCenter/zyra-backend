@@ -329,6 +329,8 @@ export const serializarDivision = (division) => {
     nombre: json.nombre,
     genero: json.genero,
     categoria_edad: json.categoria_edad ?? null,
+    edad_minima: json.edad_minima ?? null,
+    edad_maxima: json.edad_maxima ?? null,
     encargado: json.encargado ? mapUserForClient(json.encargado) : null,
     equipos_count: json.equipos?.length ?? json.equipos_count ?? 0,
   };
@@ -406,6 +408,45 @@ export const obtenerPerfilPublicoClub = async (clubId, viewerId) => {
 
   const publicacionAviso = await obtenerPermisosPublicacionAviso(clubId, viewerId, club);
 
+  const miAtletaRow = viewerId && divisionIds.length > 0
+    ? await ClubDivisionAtletas.findOne({
+      where: {
+        usuario_id: viewerId,
+        club_division_id: { [Op.in]: divisionIds },
+        estado: { [Op.ne]: 'INACTIVO' },
+      },
+      include: [
+        {
+          model: User,
+          as: 'usuario',
+          attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
+        },
+        {
+          model: ClubDivisiones,
+          as: 'division',
+          attributes: ['id', 'nombre', 'club_id'],
+        },
+      ],
+      order: [['id', 'ASC']],
+    })
+    : null;
+
+  const miAtleta = miAtletaRow
+    ? {
+      id: miAtletaRow.id,
+      club_division_id: miAtletaRow.club_division_id,
+      usuario_id: miAtletaRow.usuario_id,
+      dorsal: miAtletaRow.dorsal ?? null,
+      posicion: miAtletaRow.posicion ?? null,
+      estado: miAtletaRow.estado,
+      fecha_ingreso: miAtletaRow.fecha_ingreso,
+      usuario: miAtletaRow.usuario ? mapUserForClient(miAtletaRow.usuario) : null,
+      division: miAtletaRow.division
+        ? { id: miAtletaRow.division.id, nombre: miAtletaRow.division.nombre }
+        : null,
+    }
+    : null;
+
   return {
     club: {
       id: club.id,
@@ -432,6 +473,7 @@ export const obtenerPerfilPublicoClub = async (clubId, viewerId) => {
       division_ids_gestionables: permisos.divisionIdsGestionables ?? [],
       publicacion_aviso: publicacionAviso,
     },
+    mi_atleta: miAtleta,
   };
 };
 

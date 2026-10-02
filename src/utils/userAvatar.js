@@ -11,6 +11,10 @@ export function mapUserForClient(user) {
     name: json.name,
     photo: fotoPortada || photoLegacy,
     foto_portada_url: fotoPortada,
+    genero: json.genero ?? null,
+    fecha_nacimiento: json.fecha_nacimiento
+      ? String(json.fecha_nacimiento).slice(0, 10)
+      : null,
   };
 }
 

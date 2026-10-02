@@ -36,6 +36,11 @@ export default (sequelize) => {
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    datos_personales: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: {},
+    },
   }, {
     tableName: 'club_division_atletas',
     timestamps: false,

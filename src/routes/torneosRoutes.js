@@ -11,6 +11,7 @@ import {
   getTorneoById,
   getPerfilPublicoTorneo,
   iniciarTorneo,
+  cerrarInscripcionesTorneoController,
   createFaseTorneo,
   generarFixtureFase,
   generarEliminatoriasTorneo,
@@ -27,6 +28,7 @@ import {
   responderInscripcion,
   listInscripcionesTorneo,
   getInscripcionDetalle,
+  bajaEquipoInscripcionTorneo,
 } from '../controllers/torneoInscripcionesController.js';
 import {
   listArbitrosTorneo,
@@ -85,6 +87,8 @@ router.get('/:torneo_id/posiciones', verifyToken, getPosicionesTorneo);
 router.post('/:torneo_id/inscripciones/solicitar', verifyToken, solicitarInscripcion);
 router.post('/:torneo_id/inscripciones/invitar', verifyToken, invitarInscripcion);
 router.put('/:torneo_id/inscripciones/:inscripcion_id/responder', verifyToken, responderInscripcion);
+router.delete('/:torneo_id/inscripciones/equipos/:team_id', verifyToken, bajaEquipoInscripcionTorneo);
+router.put('/:torneo_id/cerrar-inscripciones', verifyToken, cerrarInscripcionesTorneoController);
 router.put('/:torneo_id/iniciar', verifyToken, iniciarTorneo);
 router.put('/:torneo_id', verifyToken, updateTorneo);
 router.put(

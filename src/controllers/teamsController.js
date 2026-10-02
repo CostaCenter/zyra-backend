@@ -15,6 +15,7 @@ import {
   listarEquiposConfirmadosUsuario,
   listarEquiposCapitanPorDeporte,
   obtenerPerfilPublicoEquipo,
+  resolverPermisosEquipo,
 } from '../services/teamsService.js';
 import {
   subirImagenPerfil,
@@ -71,7 +72,22 @@ const usuarioTieneAccesoEquipo = async (teamId, userId) => {
     attributes: ['id']
   });
 
-  return { equipo, tieneAcceso: Boolean(membresia) };
+  if (membresia) {
+    return { equipo, tieneAcceso: true };
+  }
+
+  if (equipo.club_id && equipo.club_division_id) {
+    const puedeGestionar = await puedeGestionarDivision(
+      equipo.club_id,
+      equipo.club_division_id,
+      userId,
+    );
+    if (puedeGestionar) {
+      return { equipo, tieneAcceso: true };
+    }
+  }
+
+  return { equipo, tieneAcceso: false };
 };
 
 const formatearEquipoDetalle = (equipo) => {
@@ -288,16 +304,7 @@ export const getTeamById = async (req, res) => {
     });
 
     const data = formatearEquipoDetalle(equipoCompleto);
-    if (data.club_id && data.club_division_id) {
-      const puedeGestionar = await puedeGestionarDivision(
-        data.club_id,
-        data.club_division_id,
-        req.userId,
-      );
-      data.permisos = {
-        puede_gestionar_plantilla: puedeGestionar || data.capitan_id === req.userId,
-      };
-    }
+    data.permisos = await resolverPermisosEquipo(data, req.userId);
 
     return res.status(200).json({
       success: true,
@@ -578,8 +585,62 @@ export const getPerfilPublicoEquipo = async (req, res) => {
 };
 
 /**
+ * PUT /api/teams/:team_id
+ * Actualiza nombre del equipo (capitán, admin del club o encargado de división).
+ */
+export const updateTeam = async (req, res) => {
+  try {
+    const teamId = parseId(req.params.team_id);
+    if (!teamId) {
+      return res.status(400).json({ success: false, message: 'team_id inválido' });
+    }
+
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'El nombre del equipo es obligatorio' });
+    }
+
+    if (name.length > 80) {
+      return res.status(400).json({ success: false, message: 'El nombre no puede superar 80 caracteres' });
+    }
+
+    const equipo = await Team.findByPk(teamId, {
+      attributes: ['id', 'capitan_id', 'club_id', 'club_division_id', 'name'],
+    });
+    if (!equipo) {
+      return res.status(404).json({ success: false, message: 'Equipo no encontrado' });
+    }
+
+    const permisos = await resolverPermisosEquipo(equipo, req.userId);
+    if (!permisos.puede_editar_identidad) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes permiso para editar este equipo',
+      });
+    }
+
+    await equipo.update({ name });
+
+    const equipoCompleto = await Team.findByPk(teamId, { include: includeTeamDetalle });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Equipo actualizado',
+      data: formatearEquipoDetalle(equipoCompleto),
+    });
+  } catch (error) {
+    console.error('Error en updateTeam:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al actualizar el equipo',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
  * PUT /api/teams/:team_id/logo
- * Sube logo del equipo (solo capitán).
+ * Sube logo del equipo (capitán, admin del club o encargado de división).
  */
 export const updateTeamLogo = async (req, res) => {
   try {
@@ -592,15 +653,18 @@ export const updateTeamLogo = async (req, res) => {
       return res.status(400).json({ success: false, message: 'La imagen logo es obligatoria' });
     }
 
-    const equipo = await Team.findByPk(teamId, { attributes: ['id', 'capitan_id'] });
+    const equipo = await Team.findByPk(teamId, {
+      attributes: ['id', 'capitan_id', 'club_id', 'club_division_id'],
+    });
     if (!equipo) {
       return res.status(404).json({ success: false, message: 'Equipo no encontrado' });
     }
 
-    if (equipo.capitan_id !== req.userId) {
+    const permisos = await resolverPermisosEquipo(equipo, req.userId);
+    if (!permisos.puede_editar_identidad) {
       return res.status(403).json({
         success: false,
-        message: 'Solo el capitán puede cambiar el logo del equipo',
+        message: 'No tienes permiso para cambiar el logo de este equipo',
       });
     }
 

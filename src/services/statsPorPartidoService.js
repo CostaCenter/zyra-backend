@@ -7,6 +7,23 @@ import {
   UsuarioStatsPorSport,
   Sports,
 } from '../db/db.js';
+import { resolverPermisosEquipo } from './teamsService.js';
+import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
+
+const MANOS_HABIL_VALIDAS = ['DERECHA', 'IZQUIERDA', 'AMBIDIESTRO'];
+
+const validarManoHabil = (valor) => {
+  if (valor === null || valor === '') return null;
+  const normalizado = String(valor).trim().toUpperCase();
+  return MANOS_HABIL_VALIDAS.includes(normalizado) ? normalizado : undefined;
+};
+
+const parseDorsal = (value) => {
+  if (value === null || value === '') return null;
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0 || n > 99) return undefined;
+  return n;
+};
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -150,7 +167,7 @@ export const listarStatsPorPartidoUsuario = async (userId, teamId) => {
 /**
  * Detalle completo equipo/jugador: metadata + partidos + totales.
  */
-export const obtenerDetalleEquipoJugador = async (userId, teamId) => {
+export const obtenerDetalleEquipoJugador = async (userId, teamId, viewerId = null) => {
   const membresia = await TeamMiembros.findOne({
     where: {
       user_id: userId,
@@ -161,7 +178,15 @@ export const obtenerDetalleEquipoJugador = async (userId, teamId) => {
       {
         model: Team,
         as: 'equipo',
-        attributes: ['id', 'name', 'logo_url', 'sport_id'],
+        attributes: [
+          'id',
+          'name',
+          'logo_url',
+          'sport_id',
+          'capitan_id',
+          'club_id',
+          'club_division_id',
+        ],
         include: [
           {
             model: Sports,
@@ -173,7 +198,7 @@ export const obtenerDetalleEquipoJugador = async (userId, teamId) => {
       {
         model: User,
         as: 'usuario',
-        attributes: ['id', 'name', 'nick', 'photo'],
+        attributes: USER_PUBLIC_ATTRIBUTES,
       },
     ],
   });
@@ -206,6 +231,14 @@ export const obtenerDetalleEquipoJugador = async (userId, teamId) => {
     { goles: 0, asistencias: 0, amarillas: 0, rojas: 0 }
   );
 
+  let permisos = { puede_editar_datos: false };
+  if (viewerId != null) {
+    const permisosEquipo = await resolverPermisosEquipo(equipo, viewerId);
+    permisos = {
+      puede_editar_datos: permisosEquipo.puede_gestionar_plantilla,
+    };
+  }
+
   return {
     equipo: {
       id: equipo.id,
@@ -216,18 +249,103 @@ export const obtenerDetalleEquipoJugador = async (userId, teamId) => {
         : null,
     },
     jugador: {
-      id: jugador.id,
-      name: jugador.name,
-      nick: jugador.nick,
-      photo: jugador.photo,
+      ...mapUserForClient(jugador),
       dorsal: membresia.dorsal_habitual ?? statsDeporte?.dorsal_preferido ?? null,
       position: membresia.position ?? statsDeporte?.posicion_principal ?? null,
       pierna_habil: statsDeporte?.pierna_habil ?? null,
       mano_habil: statsDeporte?.mano_habil ?? null,
     },
+    permisos,
     totales,
     partidos,
   };
+};
+
+/** Actualiza dorsal/posición del miembro y mano/pierna hábil en ficha deportiva. */
+export const actualizarDatosJugadorEquipo = async (teamId, userId, viewerId, payload = {}) => {
+  const team = await Team.findByPk(teamId, {
+    attributes: ['id', 'capitan_id', 'club_id', 'club_division_id', 'sport_id'],
+  });
+  if (!team) {
+    return { ok: false, status: 404, message: 'Equipo no encontrado' };
+  }
+
+  const permisosEquipo = await resolverPermisosEquipo(team, viewerId);
+  if (!permisosEquipo.puede_gestionar_plantilla) {
+    return { ok: false, status: 403, message: 'No tienes permiso para editar datos del jugador' };
+  }
+
+  const membresia = await TeamMiembros.findOne({
+    where: {
+      team_id: teamId,
+      user_id: userId,
+      estado_invitacion: 'ACEPTADO',
+    },
+  });
+  if (!membresia) {
+    return { ok: false, status: 404, message: 'Jugador no encontrado en el equipo' };
+  }
+
+  const updatesMiembro = {};
+  if (payload.dorsal_habitual !== undefined) {
+    const dorsal = parseDorsal(payload.dorsal_habitual);
+    if (dorsal === undefined) {
+      return { ok: false, status: 400, message: 'Dorsal inválido (usa 0–99)' };
+    }
+    updatesMiembro.dorsal_habitual = dorsal;
+  }
+  if (payload.position !== undefined) {
+    const pos = typeof payload.position === 'string'
+      ? payload.position.trim()
+      : payload.position;
+    updatesMiembro.position = pos || null;
+  }
+
+  if (Object.keys(updatesMiembro).length > 0) {
+    await membresia.update(updatesMiembro);
+  }
+
+  const statsUpdates = {};
+  if (payload.mano_habil !== undefined) {
+    const mano = validarManoHabil(payload.mano_habil);
+    if (payload.mano_habil !== null && payload.mano_habil !== '' && mano === undefined) {
+      return {
+        ok: false,
+        status: 400,
+        message: "mano_habil debe ser 'DERECHA', 'IZQUIERDA' o 'AMBIDIESTRO'",
+      };
+    }
+    statsUpdates.mano_habil = mano;
+  }
+  if (payload.pierna_habil !== undefined) {
+    const pierna = validarManoHabil(payload.pierna_habil);
+    if (payload.pierna_habil !== null && payload.pierna_habil !== '' && pierna === undefined) {
+      return {
+        ok: false,
+        status: 400,
+        message: "pierna_habil debe ser 'DERECHA', 'IZQUIERDA' o 'AMBIDIESTRO'",
+      };
+    }
+    statsUpdates.pierna_habil = pierna;
+  }
+
+  if (Object.keys(statsUpdates).length > 0 && team.sport_id) {
+    let registro = await UsuarioStatsPorSport.findOne({
+      where: { user_id: userId, sport_id: team.sport_id },
+    });
+    if (registro) {
+      await registro.update(statsUpdates);
+    } else {
+      await UsuarioStatsPorSport.create({
+        user_id: userId,
+        sport_id: team.sport_id,
+        ...statsUpdates,
+      });
+    }
+  }
+
+  const data = await obtenerDetalleEquipoJugador(userId, teamId, viewerId);
+  return { ok: true, data };
 };
 
 export const parseUserId = parseId;

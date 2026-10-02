@@ -11,6 +11,7 @@ import {
   Team,
   User,
   ProgresionFixture,
+  Clubs,
 } from '../db/db.js';
 import { Op } from 'sequelize';
 import { obtenerConfigLogistica } from './torneoConfigService.js';
@@ -20,6 +21,18 @@ const ESTADOS_JUGADOS = new Set(['FINALIZADO', 'WALKOVER']);
 const includeTorneoPerfil = [
   { model: Sports, as: 'sport', attributes: ['id', 'name'] },
   { model: Complejos, as: 'complejo', attributes: ['id', 'nombre', 'ubicacion'] },
+  {
+    model: User,
+    as: 'creador',
+    attributes: ['id', 'name', 'nick', 'photo'],
+    required: false,
+  },
+  {
+    model: Clubs,
+    as: 'clubOrganizador',
+    attributes: ['id', 'nombre', 'logo_url'],
+    required: false,
+  },
   {
     model: FaseTorneo,
     as: 'fases',
@@ -39,12 +52,14 @@ const includeTorneoPerfil = [
   },
 ];
 
-const serializarEquipo = (equipo) =>
+const serializarEquipo = (equipo, inscripcionId = null) =>
   equipo
     ? {
         id: equipo.id,
         name: equipo.name,
         logo_url: equipo.logo_url ?? null,
+        capitan_id: equipo.capitan_id ?? null,
+        inscripcion_id: inscripcionId,
       }
     : null;
 
@@ -188,7 +203,7 @@ export const obtenerPerfilPublicoTorneo = async (torneoId, viewerId) => {
       include: [{
         model: Team,
         as: 'equipo',
-        attributes: ['id', 'name', 'logo_url'],
+        attributes: ['id', 'name', 'logo_url', 'capitan_id'],
       }],
       order: [['id', 'ASC']],
     }),
@@ -228,8 +243,13 @@ export const obtenerPerfilPublicoTorneo = async (torneoId, viewerId) => {
 
   const partidos = partidosRaw.map(serializarPartidoPublico);
   const equipos = inscripciones
-    .map((inscripcion) => serializarEquipo(inscripcion.equipo))
+    .map((inscripcion) =>
+      serializarEquipo(inscripcion.equipo, inscripcion.id))
     .filter(Boolean);
+
+  const tieneCalendario = partidos.length > 0;
+  const inscripcionesAbiertas = torneo.inscripciones_abiertas !== false
+    && ['PLANEACION', 'INSCRIPCIONES'].includes(torneo.estado);
 
   const fases = (torneo.fases ?? []).map((fase) => ({
     id: fase.id,
@@ -320,6 +340,8 @@ export const obtenerPerfilPublicoTorneo = async (torneoId, viewerId) => {
       costo_inscripcion: torneo.costo_inscripcion ?? null,
       premiacion: torneo.premiacion ?? null,
       estado: torneo.estado,
+      inscripciones_abiertas: inscripcionesAbiertas,
+      tiene_calendario: tieneCalendario,
       visibilidad: torneo.visibilidad,
       modalidad: torneo.modalidad,
       max_equipos: torneo.max_equipos,
@@ -351,6 +373,21 @@ export const obtenerPerfilPublicoTorneo = async (torneoId, viewerId) => {
       sport: torneo.sport ? { id: torneo.sport.id, name: torneo.sport.name } : null,
       complejo: torneo.complejo
         ? { id: torneo.complejo.id, nombre: torneo.complejo.nombre, ubicacion: torneo.complejo.ubicacion }
+        : null,
+      club: torneo.clubOrganizador
+        ? {
+            id: torneo.clubOrganizador.id,
+            nombre: torneo.clubOrganizador.nombre,
+            logo_url: torneo.clubOrganizador.logo_url ?? null,
+          }
+        : null,
+      organizador: torneo.creador
+        ? {
+            id: torneo.creador.id,
+            name: torneo.creador.name,
+            nick: torneo.creador.nick,
+            photo: torneo.creador.photo ?? null,
+          }
         : null,
       creado_por_user_id: torneo.creado_por_user_id,
       orden_sorteo: enriquecerOrdenSorteo(torneo.orden_sorteo, equipos),

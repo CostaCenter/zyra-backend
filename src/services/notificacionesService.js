@@ -59,6 +59,7 @@ export const TIPOS_NOTIFICACION = {
   COMENTARIO_AVISO: 'COMENTARIO_AVISO',
   COMENTARIO_PUBLICACION: 'COMENTARIO_PUBLICACION',
   REACCION_AVISO: 'REACCION_AVISO',
+  VOTO_ENCUESTA_AVISO: 'VOTO_ENCUESTA_AVISO',
   REACCION_PUBLICACION: 'REACCION_PUBLICACION',
   PAGO_CLUB_PROXIMO: 'PAGO_CLUB_PROXIMO',
   PAGO_CLUB_VENCIDO: 'PAGO_CLUB_VENCIDO',
@@ -737,6 +738,28 @@ export async function notificarReaccionAviso({
   });
 }
 
+export async function notificarVotoEncuestaAviso({
+  anuncioId,
+  autorAvisoId,
+  actor,
+  opcionTexto,
+  transaction = null,
+}) {
+  if (!autorAvisoId || !anuncioId) return null;
+  if (actor?.id && Number(actor.id) === Number(autorAvisoId)) return null;
+
+  const nombre = displayName(actor);
+  const opcion = opcionTexto ? `: "${String(opcionTexto).trim()}"` : '';
+  return crearNotificacion({
+    usuarioId: autorAvisoId,
+    tipo: TIPOS_NOTIFICACION.VOTO_ENCUESTA_AVISO,
+    mensaje: `**${nombre}** votó en tu encuesta${opcion}`,
+    referenciaId: anuncioId,
+    referenciaTipo: 'CLUB_ANUNCIO',
+    transaction,
+  });
+}
+
 export async function notificarInvitacionClubDivision({
   invitacionId,
   usuarioInvitadoId,
@@ -1335,6 +1358,7 @@ async function resolverNavegacion(notificacion) {
     }
     case TIPOS_NOTIFICACION.COMENTARIO_AVISO:
     case TIPOS_NOTIFICACION.REACCION_AVISO:
+    case TIPOS_NOTIFICACION.VOTO_ENCUESTA_AVISO:
     case TIPOS_NOTIFICACION.ANUNCIO_CLUB: {
       let anuncioId = null;
       if (notificacion.tipo === TIPOS_NOTIFICACION.COMENTARIO_AVISO
@@ -1348,6 +1372,7 @@ async function resolverNavegacion(notificacion) {
       } else if (
         notificacion.referencia_tipo === 'CLUB_ANUNCIO'
         || notificacion.tipo === TIPOS_NOTIFICACION.REACCION_AVISO
+        || notificacion.tipo === TIPOS_NOTIFICACION.VOTO_ENCUESTA_AVISO
         || notificacion.tipo === TIPOS_NOTIFICACION.ANUNCIO_CLUB
       ) {
         anuncioId = notificacion.referencia_id;

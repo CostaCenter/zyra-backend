@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User, Complejos } from '../db/db.js';
 import { mapUserForClient } from '../utils/userAvatar.js';
+import { normalizarGeneroUsuario } from '../utils/divisionEligibility.js';
 
 /**
  * Servicio de Autenticación - Zyra
@@ -74,7 +75,37 @@ const buildAuthResponse = async (user, { withComplejos = false } = {}) => {
  * Registrar un nuevo usuario
  */
 export const registerUser = async (userData) => {
-  const { telefono, password, nick, name, photo, role } = userData;
+  const {
+    telefono,
+    password,
+    nick,
+    name,
+    photo,
+    role,
+    fecha_nacimiento: fechaNacimiento,
+    genero,
+  } = userData;
+
+  const generoNorm = normalizarGeneroUsuario(genero);
+  if (!generoNorm) {
+    throw new Error('genero debe ser MASCULINO, FEMENINO o NO_ESPECIFICADO');
+  }
+
+  const fechaRaw = fechaNacimiento ? String(fechaNacimiento).slice(0, 10) : null;
+  if (!fechaRaw || Number.isNaN(new Date(fechaRaw).getTime())) {
+    throw new Error('fecha_nacimiento es obligatoria y debe ser válida');
+  }
+
+  const birth = new Date(fechaRaw);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  if (age < 5 || age > 99) {
+    throw new Error('La fecha de nacimiento debe corresponder a una edad entre 5 y 99 años');
+  }
 
   const existingUser = await User.findOne({
     where: {
@@ -106,7 +137,9 @@ export const registerUser = async (userData) => {
     name,
     photo,
     role: normalizedRole,
-    status: 'ACTIVO'
+    status: 'ACTIVO',
+    fecha_nacimiento: fechaRaw,
+    genero: generoNorm,
   });
 
   return buildAuthResponse(newUser);

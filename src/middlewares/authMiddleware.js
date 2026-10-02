@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../db/db.js';
+import { scheduleTouchLastActive } from '../services/userActivityService.js';
 
 /**
  * Middleware de Autenticación - Zyra
@@ -52,6 +53,10 @@ export const verifyToken = async (req, res, next) => {
     // Adjuntar los datos del usuario al request
     req.user = user;
     req.userId = user.id;
+
+    if (!user.es_dato_prueba) {
+      scheduleTouchLastActive(user.id);
+    }
 
     next();
 

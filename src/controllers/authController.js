@@ -12,7 +12,16 @@ import { eliminarDispositivoPush } from '../services/dispositivosPushService.js'
  */
 export const register = async (req, res) => {
   try {
-    const { telefono, password, nick, name, photo, role } = req.body;
+    const {
+      telefono,
+      password,
+      nick,
+      name,
+      photo,
+      role,
+      fecha_nacimiento,
+      genero,
+    } = req.body;
 
     // Validaciones básicas
     if (!telefono || !password) {
@@ -46,7 +55,9 @@ export const register = async (req, res) => {
       nick,
       name,
       photo,
-      role
+      role,
+      fecha_nacimiento,
+      genero,
     });
 
     // Enviar la misma estructura que el login

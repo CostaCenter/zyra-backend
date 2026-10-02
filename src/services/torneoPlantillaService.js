@@ -18,7 +18,8 @@ import { resolverFaseActiva } from './torneoPerfilService.js';
 
 const MANOS_HABIL_VALIDAS = ['DERECHA', 'IZQUIERDA', 'AMBIDIESTRO'];
 
-const POSICIONES_VOLEY = ['ARMADOR', 'CENTRAL', 'PUNTA', 'OPUESTO', 'LÍBERO', 'LIBERO'];
+/** PUNTA se acepta por datos legacy; la UI usa AUXILIAR */
+const POSICIONES_VOLEY = ['ARMADOR', 'CENTRAL', 'AUXILIAR', 'PUNTA', 'OPUESTO', 'LÍBERO'];
 const POSICIONES_FUTBOL = ['PORTERO', 'DEFENSA', 'MEDIOCAMPISTA', 'DELANTERO'];
 
 const ESTADOS_PENDIENTES = new Set(['PROGRAMADO', 'pendiente']);
@@ -208,7 +209,16 @@ export const obtenerPlantillaTorneo = async (torneoId, teamId, viewerId) => {
   if (auth.error) return auth;
 
   const torneo = await Torneos.findByPk(torneoId, {
-    attributes: ['id', 'nombre', 'sport_id', 'photo', 'imagen_portada_url', 'estado'],
+    attributes: [
+      'id',
+      'nombre',
+      'sport_id',
+      'photo',
+      'imagen_portada_url',
+      'estado',
+      'inscripciones_abiertas',
+      'creado_por_user_id',
+    ],
     include: [{
       model: Sports,
       as: 'sport',
@@ -296,7 +306,11 @@ export const obtenerPlantillaTorneo = async (torneoId, teamId, viewerId) => {
     });
 
   const esCapitan = Number(viewerId) === Number(equipo.capitan_id);
+  const esOrganizadorTorneo = Number(viewerId) === Number(torneo.creado_por_user_id);
   const sportName = torneo.sport?.name ?? '';
+  const partidosCount = await Partidos.count({ where: { torneo_id: torneoId } });
+  const preInicio = ['PLANEACION', 'INSCRIPCIONES'].includes(torneo.estado);
+  const puedeRetirarse = esCapitan && preInicio && partidosCount === 0;
 
   return {
     data: {
@@ -308,6 +322,8 @@ export const obtenerPlantillaTorneo = async (torneoId, teamId, viewerId) => {
         photo: torneo.photo ?? null,
         imagen_portada_url: torneo.imagen_portada_url ?? torneo.photo ?? null,
         estado: torneo.estado ?? null,
+        inscripciones_abiertas: torneo.inscripciones_abiertas !== false && preInicio,
+        tiene_calendario: partidosCount > 0,
         sport: torneo.sport ? { id: torneo.sport.id, name: torneo.sport.name } : null,
       },
       equipo: {
@@ -324,7 +340,9 @@ export const obtenerPlantillaTorneo = async (torneoId, teamId, viewerId) => {
       estadisticas,
       social: {
         es_capitan: esCapitan,
+        es_organizador_torneo: esOrganizadorTorneo,
         puede_editar: esCapitan,
+        puede_retirarse: puedeRetirarse,
       },
     },
   };

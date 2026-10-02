@@ -6,6 +6,7 @@ import {
   listarEtiquetasPendientes,
   listarPublicacionesRecientes,
   listarPublicacionesFeed,
+  getPublicacionById,
   responderEtiqueta
 } from '../controllers/publicacionesController.js';
 
@@ -16,6 +17,7 @@ import {
  * POST /api/publicaciones                         → Crear publicación (multipart)
  * GET  /api/publicaciones/etiquetas/pendientes    → Etiquetas pendientes del usuario
  * PUT  /api/publicaciones/etiquetas/:id/responder → Confirmar/rechazar etiqueta
+ * GET  /api/publicaciones/:id                     → Detalle de publicación
  */
 
 const router = express.Router();
@@ -36,5 +38,6 @@ router.get('/feed', verifyToken, listarPublicacionesFeed);
 router.get('/recientes', verifyToken, listarPublicacionesRecientes);
 router.get('/etiquetas/pendientes', verifyToken, listarEtiquetasPendientes);
 router.put('/etiquetas/:id/responder', verifyToken, responderEtiqueta);
+router.get('/:id', verifyToken, getPublicacionById);
 
 export default router;

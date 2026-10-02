@@ -194,7 +194,13 @@ export const eliminarDestacadoClub = async (clubId, destacadoId, userId) => {
   return true;
 };
 
-export const agregarItemDestacado = async (clubId, destacadoId, userId, mediaFile) => {
+export const agregarItemDestacado = async (
+  clubId,
+  destacadoId,
+  userId,
+  mediaFile,
+  { trimStartSec, trimEndSec } = {},
+) => {
   const id = parseId(clubId);
   const destId = parseId(destacadoId);
   if (!id || !destId) {
@@ -212,11 +218,20 @@ export const agregarItemDestacado = async (clubId, destacadoId, userId, mediaFil
   await asegurarAdminClub(id, userId);
   const destacado = await asegurarDestacadoClub(id, destId);
 
-  const upload = await subirMediaPublicacion(mediaFile);
+  const upload = await subirMediaPublicacion(mediaFile, { trimStartSec, trimEndSec });
   const tipoRaw = inferirTipoPublicacion(mediaFile.mimetype, mediaFile.originalname);
   const tipo = tipoRaw === 'VIDEO' ? 'VIDEO' : 'IMAGEN';
+  const trimStart = Number(trimStartSec);
+  const trimEnd = Number(trimEndSec);
+  const hasTrim = tipo === 'VIDEO'
+    && Number.isFinite(trimStart)
+    && Number.isFinite(trimEnd)
+    && trimEnd > trimStart;
   const duracionSegundos = tipo === 'VIDEO'
-    ? Math.max(1, Math.round((upload.duration ?? 5) * 100) / 100)
+    ? Math.max(
+      1,
+      Math.round((hasTrim ? (trimEnd - trimStart) : (upload.duration ?? 5)) * 100) / 100,
+    )
     : 5;
 
   const maxOrden = await ClubDestacadoItems.max('orden', {

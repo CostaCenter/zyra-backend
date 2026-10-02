@@ -13,6 +13,7 @@ import {
   TeamMiembros,
   User,
 } from '../db/db.js';
+import { scheduleRecordUserActivity } from './userActivityService.js';
 import {
   SISTEMAS_TALLA,
   ESTADOS_UNIFORME_ALERTA,
@@ -664,6 +665,15 @@ export async function registrarPagoMiembro(clubId, userId, payload) {
     await activarMensualidadesTrasInscripcion(clubId, usuarioId);
   }
 
+  if (estadoInicial === 'PAGADO' || estadoInicial === 'CORTESIA') {
+    scheduleRecordUserActivity({
+      usuarioId,
+      tipo: 'PAGO_REGISTRADO',
+      entidadTipo: 'CLUB_PAGO',
+      entidadId: row.id,
+    });
+  }
+
   return { ok: true, data: formatPago(full) };
 }
 
@@ -718,13 +728,28 @@ export async function actualizarPagoMiembro(clubId, pagoId, userId, payload) {
     await activarMensualidadesTrasInscripcion(clubId, row.usuario_id);
   }
 
+  const pagoRecienMarcado = (row.estado === 'PAGADO' || row.estado === 'CORTESIA')
+    && estadoAnterior !== 'PAGADO'
+    && estadoAnterior !== 'CORTESIA';
+  if (pagoRecienMarcado) {
+    scheduleRecordUserActivity({
+      usuarioId: row.usuario_id,
+      tipo: 'PAGO_REGISTRADO',
+      entidadTipo: 'CLUB_PAGO',
+      entidadId: row.id,
+    });
+  }
+
   return { ok: true, data: formatPago(full) };
 }
 
 export async function listarMisPagosClub(clubId, userId) {
   const auth = await assertMiembro(clubId, userId);
   if (!auth.ok) return auth;
+  return listarPagosUsuarioEnClub(clubId, userId);
+}
 
+export async function listarPagosUsuarioEnClub(clubId, usuarioId) {
   const conceptos = await ClubConceptosPago.findAll({
     where: { club_id: clubId, activo: true },
     attributes: ['id'],
@@ -734,10 +759,13 @@ export async function listarMisPagosClub(clubId, userId) {
 
   const rows = await ClubPagosMiembro.findAll({
     where: {
-      usuario_id: userId,
+      usuario_id: usuarioId,
       concepto_pago_id: { [Op.in]: conceptoIds },
     },
-    include: [{ model: ClubConceptosPago, as: 'concepto' }],
+    include: [
+      { model: ClubConceptosPago, as: 'concepto' },
+      { model: User, as: 'usuario', attributes: userAttrs },
+    ],
     order: [['fecha_corte', 'DESC']],
   });
   return { ok: true, data: rows.map(formatPago) };

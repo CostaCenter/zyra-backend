@@ -22,6 +22,7 @@ import {
 } from '../services/generadorFixture.js';
 import { calcularPosicionesTorneo } from '../services/calcularPosicionesTorneo.js';
 import { obtenerPerfilPublicoTorneo } from '../services/torneoPerfilService.js';
+import { cerrarInscripcionesTorneo } from '../services/torneoInscripcionFlujo.js';
 import { obtenerEstadoHorarioTorneo } from '../services/recalculoHorariosService.js';
 import {
   parsearConfigTorneoBody,
@@ -862,6 +863,33 @@ export const getTorneoById = async (req, res) => {
     let partidos = [];
     let misInscripciones = [];
 
+    const equiposCapitan = await Team.findAll({
+      where: {
+        capitan_id: req.userId,
+        sport_id: json.sport_id,
+      },
+      attributes: ['id', 'name'],
+    });
+    const teamIdsCapitan = equiposCapitan.map((equipo) => equipo.id);
+
+    if (teamIdsCapitan.length > 0) {
+      const inscripcionesPropias = await TorneoInscripcion.findAll({
+        where: {
+          torneo_id: torneoId,
+          team_id: { [Op.in]: teamIdsCapitan },
+        },
+        include: [
+          {
+            model: Team,
+            as: 'equipo',
+            attributes: ['id', 'name', 'logo_url'],
+          },
+        ],
+        order: [['creado_at', 'DESC']],
+      });
+      misInscripciones = inscripcionesPropias.map((inscripcion) => inscripcion.toJSON());
+    }
+
     if (esOrganizador) {
       const partidosTorneo = await Partidos.findAll({
         where: { torneo_id: torneoId },
@@ -901,33 +929,6 @@ export const getTorneoById = async (req, res) => {
           equipo_visitante_nombre: visitante?.equipo?.name ?? null
         };
       });
-    } else {
-      const equiposCapitan = await Team.findAll({
-        where: {
-          capitan_id: req.userId,
-          sport_id: json.sport_id
-        },
-        attributes: ['id', 'name']
-      });
-      const teamIds = equiposCapitan.map((equipo) => equipo.id);
-
-      if (teamIds.length > 0) {
-        const inscripciones = await TorneoInscripcion.findAll({
-          where: {
-            torneo_id: torneoId,
-            team_id: { [Op.in]: teamIds }
-          },
-          include: [
-            {
-              model: Team,
-              as: 'equipo',
-              attributes: ['id', 'name', 'logo_url']
-            }
-          ],
-          order: [['creado_at', 'DESC']]
-        });
-        misInscripciones = inscripciones.map((inscripcion) => inscripcion.toJSON());
-      }
     }
 
     return res.status(200).json({
@@ -949,6 +950,61 @@ export const getTorneoById = async (req, res) => {
       success: false,
       message: 'Error al obtener torneo',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * PUT /api/torneos/:torneo_id/cerrar-inscripciones
+ */
+export const cerrarInscripcionesTorneoController = async (req, res) => {
+  try {
+    const torneoId = parseId(req.params.torneo_id);
+    if (!torneoId) {
+      return res.status(400).json({ success: false, message: 'torneo_id inválido' });
+    }
+
+    const torneo = await Torneos.findByPk(torneoId);
+    if (!torneo) {
+      return res.status(404).json({ success: false, message: 'Torneo no encontrado' });
+    }
+
+    if (torneo.creado_por_user_id !== req.userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el organizador puede cerrar las inscripciones',
+      });
+    }
+
+    if (!['PLANEACION', 'INSCRIPCIONES'].includes(torneo.estado)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El torneo ya no admite cambios en inscripciones',
+      });
+    }
+
+    if (torneo.inscripciones_abiertas === false) {
+      return res.status(200).json({
+        success: true,
+        message: 'Las inscripciones ya estaban cerradas',
+        data: torneo.toJSON(),
+      });
+    }
+
+    await cerrarInscripcionesTorneo(torneo);
+
+    const actualizado = await Torneos.findByPk(torneoId, { include: includeTorneo });
+    return res.status(200).json({
+      success: true,
+      message: 'Inscripciones cerradas',
+      data: actualizado.toJSON(),
+    });
+  } catch (error) {
+    console.error('Error en cerrarInscripcionesTorneoController:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al cerrar inscripciones',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -988,6 +1044,13 @@ export const iniciarTorneo = async (req, res) => {
       });
     }
 
+    if (torneo.inscripciones_abiertas !== false) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cierra las inscripciones antes de iniciar el torneo',
+      });
+    }
+
     const equiposAceptados = await TorneoInscripcion.count({
       where: { torneo_id: torneoId, estado: 'ACEPTADA' }
     });
@@ -996,6 +1059,14 @@ export const iniciarTorneo = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Se necesitan al menos 2 equipos con inscripción aceptada para iniciar el torneo'
+      });
+    }
+
+    const partidosCalendario = await Partidos.count({ where: { torneo_id: torneoId } });
+    if (partidosCalendario < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Genera el calendario de partidos antes de iniciar el torneo',
       });
     }
 
@@ -1121,6 +1192,20 @@ export const generarFixtureFase = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'Solo el organizador puede generar el fixture'
+      });
+    }
+
+    if (torneo.inscripciones_abiertas !== false) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cierra las inscripciones antes de generar el calendario',
+      });
+    }
+
+    if (!['PLANEACION', 'INSCRIPCIONES'].includes(torneo.estado)) {
+      return res.status(400).json({
+        success: false,
+        message: 'El torneo ya comenzó, no se puede generar el calendario',
       });
     }
 

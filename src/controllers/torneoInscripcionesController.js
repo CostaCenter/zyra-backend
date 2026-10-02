@@ -10,8 +10,13 @@ import {
 } from '../db/db.js';
 import {
   validarCupoDisponible,
-  validarTorneoAceptaInscripciones
+  validarTorneoAceptaInscripciones,
 } from '../services/torneoInscripcionValidaciones.js';
+import {
+  maybeCerrarInscripcionesPorCupo,
+  validarTorneoPermiteBajaEquipo,
+  eliminarInscripcionAceptada,
+} from '../services/torneoInscripcionFlujo.js';
 import {
   notificarSolicitudInscripcion,
   notificarInscripcionAceptada,
@@ -19,6 +24,7 @@ import {
   notificarRespuestaInvitacionTorneo,
 } from '../services/notificacionesService.js';
 import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
+import { scheduleRecordUserActivity } from '../services/userActivityService.js';
 
 const parseId = (value) => {
   const id = parseInt(value, 10);
@@ -65,6 +71,7 @@ const buscarTorneoDetalle = async (torneoId) =>
       'sport_id',
       'max_equipos',
       'estado',
+      'inscripciones_abiertas',
       'photo',
       'imagen_portada_url',
     ],
@@ -135,27 +142,46 @@ export const solicitarInscripcion = async (req, res) => {
       });
     }
 
+    const esOrganizadorDelTorneo = torneo.creado_por_user_id === req.userId;
+    const aceptadaDirecta = esOrganizadorDelTorneo;
+    const ahora = new Date();
+
     const inscripcion = await TorneoInscripcion.create({
       torneo_id: torneoId,
       team_id: teamId,
       origen: 'SOLICITUD_EQUIPO',
       iniciado_por_id: req.userId,
-      estado: 'PENDIENTE'
+      estado: aceptadaDirecta ? 'ACEPTADA' : 'PENDIENTE',
+      resuelto_por_id: aceptadaDirecta ? req.userId : null,
+      resuelto_at: aceptadaDirecta ? ahora : null,
+    });
+
+    scheduleRecordUserActivity({
+      usuarioId: req.userId,
+      tipo: 'INSCRIPCION_TORNEO',
+      entidadTipo: 'TORNEO',
+      entidadId: torneoId,
     });
 
     const inscripcionCompleta = await TorneoInscripcion.findByPk(inscripcion.id, {
       include: includeInscripcion
     });
 
-    scheduleSideEffect('solicitud-inscripcion', () => notificarSolicitudInscripcion({
-      inscripcionId: inscripcion.id,
-      torneoId,
-      equipo,
-    }));
+    if (!aceptadaDirecta) {
+      scheduleSideEffect('solicitud-inscripcion', () => notificarSolicitudInscripcion({
+        inscripcionId: inscripcion.id,
+        torneoId,
+        equipo,
+      }));
+    } else {
+      await maybeCerrarInscripcionesPorCupo(torneo);
+    }
 
     return res.status(201).json({
       success: true,
-      message: 'Solicitud de inscripción creada',
+      message: aceptadaDirecta
+        ? 'Equipo inscrito en el torneo'
+        : 'Solicitud de inscripción creada',
       data: inscripcionCompleta.toJSON()
     });
   } catch (error) {
@@ -242,6 +268,13 @@ export const invitarInscripcion = async (req, res) => {
       origen: 'INVITACION_TORNEO',
       iniciado_por_id: req.userId,
       estado: 'PENDIENTE'
+    });
+
+    scheduleRecordUserActivity({
+      usuarioId: req.userId,
+      tipo: 'INSCRIPCION_TORNEO',
+      entidadTipo: 'TORNEO',
+      entidadId: torneoId,
     });
 
     const inscripcionCompleta = await TorneoInscripcion.findByPk(inscripcion.id, {
@@ -359,6 +392,10 @@ export const responderInscripcion = async (req, res) => {
       resuelto_por_id: req.userId,
       resuelto_at: new Date()
     });
+
+    if (respuesta === 'ACEPTADA') {
+      await maybeCerrarInscripcionesPorCupo(torneo);
+    }
 
     if (inscripcion.origen === 'SOLICITUD_EQUIPO' && inscripcion.equipo?.capitan_id) {
       if (respuesta === 'ACEPTADA') {
@@ -561,6 +598,78 @@ export const listInscripcionesTorneo = async (req, res) => {
       success: false,
       message: 'Error al obtener inscripciones',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * DELETE /api/torneos/:torneo_id/inscripciones/equipos/:team_id
+ * Capitán: retirar su equipo. Organizador: quitar otro equipo (no si es capitán de ese equipo).
+ */
+export const bajaEquipoInscripcionTorneo = async (req, res) => {
+  try {
+    const torneoId = parseId(req.params.torneo_id);
+    const teamId = parseId(req.params.team_id);
+
+    if (!torneoId || !teamId) {
+      return res.status(400).json({
+        success: false,
+        message: 'torneo_id y team_id son obligatorios',
+      });
+    }
+
+    const torneo = await buscarTorneoDetalle(torneoId);
+    if (!torneo) {
+      return res.status(404).json({ success: false, message: 'Torneo no encontrado' });
+    }
+
+    const equipo = await buscarEquipo(teamId);
+    if (!equipo) {
+      return res.status(404).json({ success: false, message: 'Equipo no encontrado' });
+    }
+
+    const esOrganizador = torneo.creado_por_user_id === req.userId;
+    const esCapitan = equipo.capitan_id === req.userId;
+
+    if (esCapitan) {
+      // capitán retira su equipo
+    } else if (esOrganizador) {
+      // organizador quita a otro equipo
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes permiso para dar de baja este equipo',
+      });
+    }
+
+    const bloqueo = await validarTorneoPermiteBajaEquipo(torneo);
+    if (bloqueo) {
+      return res.status(bloqueo.status).json({ success: false, message: bloqueo.message });
+    }
+
+    const inscripcion = await TorneoInscripcion.findOne({
+      where: { torneo_id: torneoId, team_id: teamId, estado: 'ACEPTADA' },
+    });
+
+    if (!inscripcion) {
+      return res.status(404).json({
+        success: false,
+        message: 'El equipo no está inscrito en este torneo',
+      });
+    }
+
+    await eliminarInscripcionAceptada(inscripcion, torneo);
+
+    return res.status(200).json({
+      success: true,
+      message: esCapitan ? 'Tu equipo se retiró del torneo' : 'Equipo eliminado del torneo',
+    });
+  } catch (error) {
+    console.error('Error en bajaEquipoInscripcionTorneo:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al dar de baja el equipo',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };

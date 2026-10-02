@@ -85,6 +85,7 @@ const sequelize = databaseUrl
     logging: false,
     pool,
     dialectOptions,
+    timezone: '+00:00',
   })
   : new Sequelize(
     process.env.DB_NAME || 'zyra',
@@ -97,6 +98,7 @@ const sequelize = databaseUrl
       logging: false,
       pool,
       dialectOptions,
+      timezone: '+00:00',
     },
   );
 

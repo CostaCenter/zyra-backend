@@ -18,8 +18,10 @@ import {
   notificarComentarioPublicacion,
   notificarReaccionAviso,
   notificarReaccionPublicacion,
+  notificarVotoEncuestaAviso,
 } from './notificacionesService.js';
 import { scheduleSideEffect } from '../utils/scheduleSideEffect.js';
+import { scheduleRecordUserActivity } from './userActivityService.js';
 
 async function resolverDestinatariosAnuncio(anuncio) {
   const { resolverDestinatariosAnuncio: resolver } = await import('./clubGestionService.js');
@@ -203,7 +205,9 @@ export async function obtenerResumenInteraccion(contenidoTipoRaw, contenidoIdRaw
 
   let encuestaData = null;
   if (encuesta) {
-    encuestaData = await serializarEncuestaResultados(encuesta, userId);
+    encuestaData = await serializarEncuestaResultados(encuesta, userId, {
+      autorContenidoId: contenido.autorId,
+    });
   }
 
   return {
@@ -269,9 +273,13 @@ export async function enriquecerInteraccionesBatch(contenidoTipoRaw, contenidoId
     if (userId && r.usuario_id === userId) bucket.mi_reaccion = r.tipo_reaccion;
   });
 
+  const autoresMap = await resolverAutoresContenidoBatch(norm.tipo, ids);
+
   const encuestasMap = {};
   for (const enc of encuestas) {
-    encuestasMap[enc.contenido_id] = await serializarEncuestaResultados(enc, userId);
+    encuestasMap[enc.contenido_id] = await serializarEncuestaResultados(enc, userId, {
+      autorContenidoId: autoresMap[enc.contenido_id] ?? null,
+    });
   }
 
   const result = new Map();
@@ -369,6 +377,17 @@ export async function setReaccion(contenidoTipoRaw, contenidoIdRaw, userId, tipo
             ? notificarReaccionPublicacion(payload)
             : notificarReaccionAviso(payload)
         ));
+      });
+    }
+
+    if (accion !== 'eliminada') {
+      transaction.afterCommit(() => {
+        scheduleRecordUserActivity({
+          usuarioId: userId,
+          tipo: 'REACCION',
+          entidadTipo: norm.tipo,
+          entidadId: contenidoId,
+        });
       });
     }
 
@@ -620,6 +639,15 @@ export async function crearComentario(
       });
     }
 
+    transaction.afterCommit(() => {
+      scheduleRecordUserActivity({
+        usuarioId: userId,
+        tipo: 'COMENTARIO',
+        entidadTipo: norm.tipo,
+        entidadId: contenidoId,
+      });
+    });
+
     return {
       ok: true,
       data: {
@@ -793,7 +821,64 @@ export async function crearEncuesta(contenidoTipoRaw, contenidoId, { pregunta, o
   return { ok: true, encuesta };
 }
 
-async function serializarEncuestaResultados(encuesta, userId = null) {
+async function resolverAutoresContenidoBatch(contenidoTipo, ids) {
+  if (!ids?.length) return {};
+
+  if (contenidoTipo === 'AVISO') {
+    const rows = await ClubAnuncios.findAll({
+      where: { id: { [Op.in]: ids } },
+      attributes: ['id', 'autor_id'],
+    });
+    return rows.reduce((acc, row) => {
+      acc[row.id] = row.autor_id;
+      return acc;
+    }, {});
+  }
+
+  if (contenidoTipo === 'PUBLICACION') {
+    const rows = await Publicaciones.findAll({
+      where: { id: { [Op.in]: ids } },
+      attributes: ['id', 'user_id'],
+    });
+    return rows.reduce((acc, row) => {
+      acc[row.id] = row.user_id;
+      return acc;
+    }, {});
+  }
+
+  return {};
+}
+
+async function obtenerDetalleVotantesEncuesta(encuestaId, opciones = []) {
+  const opcionTextoMap = opciones.reduce((acc, op) => {
+    acc[op.id] = op.texto_opcion;
+    return acc;
+  }, {});
+
+  const votos = await EncuestaVotos.findAll({
+    where: { encuesta_id: encuestaId },
+    include: [{
+      model: User,
+      as: 'usuario',
+      attributes: ['id', 'nick', 'name', 'photo'],
+    }],
+    order: [['created_at', 'ASC'], ['id', 'ASC']],
+  });
+
+  return votos.map((voto) => ({
+    usuario_id: voto.usuario_id,
+    usuario: mapAutor(voto.usuario),
+    encuesta_opcion_id: voto.encuesta_opcion_id,
+    opcion_texto: opcionTextoMap[voto.encuesta_opcion_id] ?? null,
+    votado_at: voto.created_at,
+  }));
+}
+
+async function serializarEncuestaResultados(
+  encuesta,
+  userId = null,
+  { autorContenidoId = null } = {},
+) {
   const opciones = encuesta.opciones ?? [];
   const opcionIds = opciones.map((o) => o.id);
 
@@ -805,13 +890,17 @@ async function serializarEncuestaResultados(encuesta, userId = null) {
     : null;
 
   const miVotoOpcionId = miVoto?.encuesta_opcion_id ?? null;
-  const revelados = miVotoOpcionId != null;
+  const esCreador = autorContenidoId != null
+    && userId != null
+    && Number(autorContenidoId) === Number(userId);
+  const revelados = miVotoOpcionId != null || esCreador;
 
   if (!revelados) {
     return {
       id: encuesta.id,
       pregunta: encuesta.pregunta,
       resultados_revelados: false,
+      es_creador: false,
       total_votos: null,
       mi_voto_opcion_id: null,
       opciones: opciones.map((op) => ({
@@ -840,10 +929,11 @@ async function serializarEncuestaResultados(encuesta, userId = null) {
 
   const totalVotos = Object.values(conteoMap).reduce((sum, n) => sum + n, 0);
 
-  return {
+  const payload = {
     id: encuesta.id,
     pregunta: encuesta.pregunta,
     resultados_revelados: true,
+    es_creador: esCreador,
     total_votos: totalVotos,
     mi_voto_opcion_id: miVotoOpcionId,
     opciones: opciones.map((op) => {
@@ -857,6 +947,12 @@ async function serializarEncuestaResultados(encuesta, userId = null) {
       };
     }),
   };
+
+  if (esCreador) {
+    payload.votantes_detalle = await obtenerDetalleVotantesEncuesta(encuesta.id, opciones);
+  }
+
+  return payload;
 }
 
 export async function obtenerEncuestaResultados(contenidoTipoRaw, contenidoIdRaw, userId) {
@@ -878,7 +974,15 @@ export async function obtenerEncuestaResultados(contenidoTipoRaw, contenidoIdRaw
 
   if (!encuesta) return { ok: false, status: 404, error: 'Encuesta no encontrada' };
 
-  return { ok: true, data: await serializarEncuestaResultados(encuesta, userId) };
+  const contenido = await obtenerContenido(norm.tipo, contenidoId);
+  if (!contenido.ok) return contenido;
+
+  return {
+    ok: true,
+    data: await serializarEncuestaResultados(encuesta, userId, {
+      autorContenidoId: contenido.autorId,
+    }),
+  };
 }
 
 export async function votarEncuesta(contenidoTipoRaw, contenidoIdRaw, userId, encuestaOpcionIdRaw) {
@@ -894,6 +998,8 @@ export async function votarEncuesta(contenidoTipoRaw, contenidoIdRaw, userId, en
   const permiso = await usuarioPuedeInteractuar(norm.tipo, contenidoId, userId);
   if (!permiso.ok) return permiso;
 
+  const autorContenidoId = permiso.autorId ?? null;
+
   const encuesta = await Encuestas.findOne({
     where: { contenido_tipo: norm.tipo, contenido_id: contenidoId },
   });
@@ -908,9 +1014,11 @@ export async function votarEncuesta(contenidoTipoRaw, contenidoIdRaw, userId, en
     where: { encuesta_id: encuesta.id, usuario_id: userId },
   });
 
+  let huboVoto = false;
   if (votoExistente) {
     if (votoExistente.encuesta_opcion_id !== encuestaOpcionId) {
       await votoExistente.update({ encuesta_opcion_id: encuestaOpcionId });
+      huboVoto = true;
     }
   } else {
     await EncuestaVotos.create({
@@ -918,11 +1026,41 @@ export async function votarEncuesta(contenidoTipoRaw, contenidoIdRaw, userId, en
       encuesta_opcion_id: encuestaOpcionId,
       usuario_id: userId,
     });
+    huboVoto = true;
+  }
+
+  if (huboVoto) {
+    scheduleRecordUserActivity({
+      usuarioId: userId,
+      tipo: 'VOTO_ENCUESTA',
+      entidadTipo: norm.tipo,
+      entidadId: contenidoId,
+    });
+  }
+
+  if (
+    huboVoto
+    && norm.tipo === 'AVISO'
+    && autorContenidoId
+    && Number(userId) !== Number(autorContenidoId)
+  ) {
+    scheduleSideEffect('notificarVotoEncuestaAviso', async () => {
+      const actor = await User.findByPk(userId, { attributes: ['id', 'nick', 'name'] });
+      await notificarVotoEncuestaAviso({
+        anuncioId: contenidoId,
+        autorAvisoId: autorContenidoId,
+        actor,
+        opcionTexto: opcion.texto_opcion,
+      });
+    });
   }
 
   const encuestaCompleta = await Encuestas.findByPk(encuesta.id, {
     include: [{ model: EncuestaOpciones, as: 'opciones', separate: true, order: [['orden', 'ASC']] }],
   });
 
-  return { ok: true, data: await serializarEncuestaResultados(encuestaCompleta, userId) };
+  return {
+    ok: true,
+    data: await serializarEncuestaResultados(encuestaCompleta, userId, { autorContenidoId }),
+  };
 }

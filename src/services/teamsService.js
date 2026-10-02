@@ -9,8 +9,30 @@ import {
   Seguidores,
   Clubs,
   ClubDivisiones,
+  ClubDivisionAtletas,
 } from '../db/db.js';
 import { listarPublicacionesDeEquipo } from './publicacionesService.js';
+import { puedeGestionarDivision } from './clubGestionService.js';
+import { mapUserForClient, USER_PUBLIC_ATTRIBUTES } from '../utils/userAvatar.js';
+
+/** Permisos de edición/gestión según capitán, admin del club o encargado de división. */
+export const resolverPermisosEquipo = async (equipo, viewerId) => {
+  const esCapitan = viewerId != null && Number(viewerId) === Number(equipo.capitan_id);
+  let puedeGestionar = false;
+
+  if (equipo.club_id && equipo.club_division_id && viewerId != null) {
+    puedeGestionar = await puedeGestionarDivision(
+      equipo.club_id,
+      equipo.club_division_id,
+      viewerId,
+    );
+  }
+
+  return {
+    puede_gestionar_plantilla: puedeGestionar || esCapitan,
+    puede_editar_identidad: puedeGestionar || esCapitan,
+  };
+};
 
 const includeEquipo = (teamWhere = {}) => [
   {
@@ -24,7 +46,7 @@ const includeEquipo = (teamWhere = {}) => [
       {
         model: User,
         as: 'capitan',
-        attributes: ['id', 'nick', 'name', 'photo'],
+        attributes: USER_PUBLIC_ATTRIBUTES,
         required: false,
       },
     ],
@@ -149,7 +171,7 @@ export const listarEquiposCapitanPorDeporte = async (userId, sportId = null) => 
       {
         model: User,
         as: 'capitan',
-        attributes: ['id', 'nick', 'name', 'photo'],
+        attributes: USER_PUBLIC_ATTRIBUTES,
         required: false,
       },
     ],
@@ -184,14 +206,7 @@ const serializarJugadorEquipo = (miembro) => ({
   rol: miembro.rol,
   position: miembro.position,
   dorsal_habitual: miembro.dorsal_habitual,
-  usuario: miembro.usuario
-    ? {
-        id: miembro.usuario.id,
-        nick: miembro.usuario.nick,
-        name: miembro.usuario.name,
-        photo: miembro.usuario.photo,
-      }
-    : null,
+  usuario: miembro.usuario ? mapUserForClient(miembro.usuario) : null,
 });
 
 /**
@@ -221,7 +236,7 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
         include: [{
           model: User,
           as: 'usuario',
-          attributes: ['id', 'nick', 'name', 'photo'],
+          attributes: USER_PUBLIC_ATTRIBUTES,
         }],
       },
     ],
@@ -229,7 +244,7 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
 
   if (!equipo) return null;
 
-  const jugadores = (equipo.miembros ?? [])
+  let jugadores = (equipo.miembros ?? [])
     .filter((miembro) => miembro.estado_invitacion === 'ACEPTADO')
     .map(serializarJugadorEquipo)
     .sort((a, b) => {
@@ -238,15 +253,33 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
       return (a.usuario?.name || '').localeCompare(b.usuario?.name || '');
     });
 
+  if (equipo.club_id && equipo.club_division_id && jugadores.length) {
+    const nominaRows = await ClubDivisionAtletas.findAll({
+      where: {
+        club_division_id: equipo.club_division_id,
+        usuario_id: { [Op.in]: jugadores.map((j) => j.user_id).filter(Boolean) },
+      },
+      attributes: ['id', 'usuario_id'],
+    });
+    const atletaIdPorUsuario = new Map(
+      nominaRows.map((row) => [row.usuario_id, row.id]),
+    );
+    jugadores = jugadores.map((jugador) => ({
+      ...jugador,
+      club_atleta_id: atletaIdPorUsuario.get(jugador.user_id) ?? null,
+    }));
+  }
+
   const memberIds = jugadores.map((j) => j.user_id).filter(Boolean);
-  const [seguidores, seguimiento, publicaciones] = await Promise.all([
+  const [seguidores, seguimiento, publicaciones, permisos] = await Promise.all([
     Seguidores.count({ where: { seguido_team_id: teamId } }),
     viewerId
       ? Seguidores.findOne({
           where: { seguidor_user_id: viewerId, seguido_team_id: teamId },
         })
       : null,
-    listarPublicacionesDeEquipo(teamId, memberIds, equipo.sport_id),
+    listarPublicacionesDeEquipo(teamId, equipo.sport_id),
+    viewerId ? resolverPermisosEquipo(equipo, viewerId) : Promise.resolve(null),
   ]);
 
   const generoDisplay = equipo.clubDivision?.genero ?? equipo.genero ?? null;
@@ -289,5 +322,6 @@ export const obtenerPerfilPublicoEquipo = async (teamId, viewerId) => {
       siguiendo: Boolean(seguimiento),
       seguimiento_id: seguimiento?.id ?? null,
     },
+    permisos: permisos ?? undefined,
   };
 };

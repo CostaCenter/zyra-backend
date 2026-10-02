@@ -17,7 +17,11 @@ import {
   parseEtiquetados,
   serializarPublicacion
 } from '../services/publicacionesService.js';
-import { obtenerPublicacionesRecientes, obtenerPublicacionesFeed } from '../services/destacadosService.js';
+import {
+  obtenerPublicacionesRecientes,
+  obtenerPublicacionesFeed,
+  obtenerPublicacionPorId,
+} from '../services/destacadosService.js';
 
 /**
  * POST /api/publicaciones
@@ -41,7 +45,10 @@ export const crearPublicacion = async (req, res) => {
       ? parseInt(equipoIdRaw, 10)
       : null;
 
-    const upload = await subirMediaPublicacion(req.file);
+    const upload = await subirMediaPublicacion(req.file, {
+      trimStartSec: req.body?.trim_start_sec,
+      trimEndSec: req.body?.trim_end_sec,
+    });
     const tipo = inferirTipoPublicacion(req.file.mimetype, req.file.originalname);
 
     if (process.env.NODE_ENV === 'development') {
@@ -248,6 +255,42 @@ export const listarPublicacionesRecientes = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error al obtener publicaciones recientes',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * GET /api/publicaciones/:id
+ * Detalle de una publicación (p. ej. desde notificación de etiqueta).
+ */
+export const getPublicacionById = async (req, res) => {
+  try {
+    const publicacionId = parseInt(req.params.id, 10);
+    if (Number.isNaN(publicacionId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de publicación inválido',
+      });
+    }
+
+    const data = await obtenerPublicacionPorId(publicacionId, req.userId);
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        message: 'Publicación no encontrada',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error('Error en getPublicacionById:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener la publicación',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }

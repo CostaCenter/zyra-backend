@@ -57,6 +57,11 @@ export default (sequelize) => {
         isIn: [['PLANEACION', 'INSCRIPCIONES', 'EN_CURSO', 'FINALIZADO', 'CANCELADO']]
       }
     },
+    inscripciones_abiertas: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
     visibilidad: {
       type: DataTypes.STRING(10),
       allowNull: false,

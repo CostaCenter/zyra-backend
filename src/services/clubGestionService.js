@@ -1,5 +1,10 @@
 import { Op } from 'sequelize';
 import { mapUserForClient } from '../utils/userAvatar.js';
+import { scheduleRecordUserActivity } from './userActivityService.js';
+import {
+  calcularEdadDesdeFecha,
+  validarUsuarioParaDivision,
+} from '../utils/divisionEligibility.js';
 import {
   sequelize,
   Clubs,
@@ -25,6 +30,10 @@ import {
   PartidoNominas,
   PartidoJugadorStats,
   MarcadoresDetalle,
+  ClubPagosMiembro,
+  ClubConceptosPago,
+  ClubSolicitudes,
+  ClubUniformeAsignaciones,
 } from '../db/db.js';
 import {
   parseId,
@@ -667,6 +676,59 @@ export const listarAnunciosClub = async (clubId, { limit = 50, viewerUserId = nu
   });
 };
 
+export const usuarioPuedeQuitarImportanciaAnuncio = async (anuncio, userId) => {
+  if (!anuncio || !userId) return false;
+  if (anuncio.importancia !== 'IMPORTANTE') return false;
+
+  if (Number(anuncio.autor_id) === Number(userId)) return true;
+
+  const clubId = anuncio.club_id;
+  const club = anuncio.club
+    ?? await Clubs.findByPk(clubId, { attributes: ['id', 'admin_id'] });
+  if (usuarioEsAdminClub(club, userId)) return true;
+
+  const miembro = await ClubMiembros.findOne({
+    where: { club_id: clubId, usuario_id: userId, estado: 'ACTIVO' },
+    attributes: ['rol_membresia'],
+  });
+  if (miembro?.rol_membresia && miembro.rol_membresia !== 'ATLETA') {
+    return true;
+  }
+
+  const esEncargado = await ClubDivisiones.findOne({
+    where: { club_id: clubId, encargado_id: userId },
+    attributes: ['id'],
+  });
+  return Boolean(esEncargado);
+};
+
+export const actualizarImportanciaAnuncio = async (clubId, anuncioId, userId, importancia) => {
+  const importanciaNorm = importancia === 'IMPORTANTE' ? 'IMPORTANTE' : 'NORMAL';
+
+  const anuncio = await ClubAnuncios.findOne({
+    where: { id: anuncioId, club_id: clubId },
+    include: [
+      { model: Clubs, as: 'club', attributes: ['id', 'admin_id'] },
+    ],
+  });
+  if (!anuncio) return { ok: false, status: 404, error: 'Aviso no encontrado' };
+
+  if (importanciaNorm === 'NORMAL' && anuncio.importancia === 'IMPORTANTE') {
+    const puede = await usuarioPuedeQuitarImportanciaAnuncio(anuncio, userId);
+    if (!puede) {
+      return { ok: false, status: 403, error: 'No puedes quitar la marca de importante' };
+    }
+  } else if (importanciaNorm === 'IMPORTANTE') {
+    const club = anuncio.club ?? await Clubs.findByPk(clubId, { attributes: ['id', 'admin_id'] });
+    if (!usuarioEsAdminClub(club, userId)) {
+      return { ok: false, status: 403, error: 'Solo el admin puede marcar avisos como importantes' };
+    }
+  }
+
+  await anuncio.update({ importancia: importanciaNorm });
+  return { ok: true, data: { id: anuncio.id, importancia: importanciaNorm } };
+};
+
 export const obtenerAnuncioClub = async (clubId, anuncioId, viewerUserId = null) => {
   const anuncio = await ClubAnuncios.findOne({
     where: { id: anuncioId, club_id: clubId },
@@ -705,6 +767,9 @@ export const obtenerAnuncioClub = async (clubId, anuncioId, viewerUserId = null)
         puede_reportar: Boolean(
           viewerUserId && Number(anuncio.autor_id) !== Number(viewerUserId),
         ),
+        puede_quitar_importancia: viewerUserId
+          ? await usuarioPuedeQuitarImportanciaAnuncio(anuncio, viewerUserId)
+          : false,
       },
     },
   };
@@ -844,10 +909,38 @@ const contarConfirmaciones = (confirmaciones = []) => ({
   sin_responder: confirmaciones.filter((c) => c.respuesta === 'SIN_RESPONDER').length,
 });
 
+const fechaEventoAIso = (value) => {
+  if (value == null) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
+
+const MS_DIA = 86400000;
+
+const partesLocalesEvento = (fecha, offsetMin) => {
+  const shifted = new Date(fecha.getTime() + offsetMin * 60000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(),
+    date: shifted.getUTCDate(),
+    day: shifted.getUTCDay(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+  };
+};
+
+const utcDesdeLocalEvento = ({
+  year, month, date, hour, minute,
+}, offsetMin) => {
+  const utcMs = Date.UTC(year, month, date, hour, minute ?? 0, 0, 0);
+  return new Date(utcMs - offsetMin * 60000);
+};
+
 export const serializarEvento = (evento, extras = {}) => {
   const json = typeof evento.toJSON === 'function' ? evento.toJSON() : evento;
   const confirmaciones = json.confirmaciones ?? extras.confirmaciones ?? [];
   const rsvp = contarConfirmaciones(confirmaciones);
+  const fechaHoraIso = fechaEventoAIso(json.fecha_hora);
 
   return {
     id: json.id,
@@ -855,8 +948,8 @@ export const serializarEvento = (evento, extras = {}) => {
     tipo: json.tipo,
     titulo: json.titulo,
     descripcion: json.descripcion ?? null,
-    fecha_hora: json.fecha_hora,
-    fecha_hora_fin: json.fecha_hora_fin ?? null,
+    fecha_hora: fechaHoraIso,
+    fecha_hora_fin: fechaEventoAIso(json.fecha_hora_fin),
     lugar: json.lugar ?? null,
     dias_recurrencia: json.dias_recurrencia ?? null,
     enfoque_sesion: json.enfoque_sesion ?? null,
@@ -878,37 +971,60 @@ export const serializarEvento = (evento, extras = {}) => {
       }
       : extras.division ?? null,
     rsvp,
-    es_pasado: new Date(json.fecha_hora) < new Date(),
+    es_pasado: fechaHoraIso ? new Date(fechaHoraIso) < new Date() : false,
     completado: Boolean(json.completado_at),
     ...extras,
   };
 };
 
-const generarFechasRecurrencia = (fechaBase, diasRecurrencia, semanas = SEMANAS_RECURRENCIA) => {
+const generarFechasRecurrencia = (
+  fechaBase,
+  diasRecurrencia,
+  semanas = SEMANAS_RECURRENCIA,
+  utcOffsetMin = 0,
+) => {
+  const base = new Date(fechaBase);
+  if (Number.isNaN(base.getTime())) return [base];
   if (!Array.isArray(diasRecurrencia) || !diasRecurrencia.length) {
-    return [fechaBase];
+    return [base];
   }
 
-  const diasSet = new Set(diasRecurrencia.map((d) => Number(d)));
-  const inicioSemana = new Date(fechaBase);
-  inicioSemana.setHours(fechaBase.getHours(), fechaBase.getMinutes(), 0, 0);
-  inicioSemana.setDate(inicioSemana.getDate() - inicioSemana.getDay());
+  const offset = Number.isFinite(Number(utcOffsetMin)) ? Number(utcOffsetMin) : 0;
+  const localBase = partesLocalesEvento(base, offset);
+  const diasSet = new Set(diasRecurrencia.map((d) => Number(d)).filter((d) => d >= 0 && d <= 6));
+
+  const inicioSemanaLocal = utcDesdeLocalEvento({
+    year: localBase.year,
+    month: localBase.month,
+    date: localBase.date - localBase.day,
+    hour: 0,
+    minute: 0,
+  }, offset);
 
   const fechas = [];
   for (let sem = 0; sem < semanas; sem += 1) {
-    for (let dia = 0; dia < 7; dia += 1) {
-      if (!diasSet.has(dia)) continue;
-      const candidata = new Date(inicioSemana);
-      candidata.setDate(inicioSemana.getDate() + (sem * 7) + dia);
-      candidata.setHours(fechaBase.getHours(), fechaBase.getMinutes(), 0, 0);
-      if (candidata >= fechaBase || sem > 0) {
-        fechas.push(candidata);
+    for (const dia of diasSet) {
+      const candidataMs = inicioSemanaLocal.getTime() + ((sem * 7) + dia) * MS_DIA;
+      const diaLocal = partesLocalesEvento(new Date(candidataMs), offset);
+      const conHora = utcDesdeLocalEvento({
+        year: diaLocal.year,
+        month: diaLocal.month,
+        date: diaLocal.date,
+        hour: localBase.hour,
+        minute: localBase.minute,
+      }, offset);
+      if (conHora >= base || sem > 0) {
+        fechas.push(conHora);
       }
     }
   }
 
-  if (!fechas.length) fechas.push(fechaBase);
-  return fechas.sort((a, b) => a - b);
+  if (!fechas.length) fechas.push(base);
+
+  const unicos = [...new Set(fechas.map((d) => d.getTime()))]
+    .map((t) => new Date(t))
+    .sort((a, b) => a - b);
+  return unicos;
 };
 
 const crearPartidoPracticaInternaVacio = async ({
@@ -984,6 +1100,8 @@ export const crearEventoDivision = async ({
   descripcion,
   fechaHora,
   fechaHoraFin = null,
+  duracionMinutos = null,
+  utcOffsetMinutos = null,
   lugar,
   diasRecurrencia = null,
   enfoqueSesion = null,
@@ -1033,10 +1151,27 @@ export const crearEventoDivision = async ({
     : null;
 
   const fechaBase = new Date(fechaHora);
-  const fechas = generarFechasRecurrencia(fechaBase, diasRec);
-  const duracionMs = fechaHoraFin
-    ? new Date(fechaHoraFin).getTime() - fechaBase.getTime()
-    : null;
+  if (Number.isNaN(fechaBase.getTime())) {
+    return { ok: false, status: 400, error: 'fecha_hora inválida' };
+  }
+
+  const offset = Number.isFinite(Number(utcOffsetMinutos))
+    ? Number(utcOffsetMinutos)
+    : 0;
+  const fechas = generarFechasRecurrencia(fechaBase, diasRec, SEMANAS_RECURRENCIA, offset);
+
+  let duracionMs = null;
+  if (duracionMinutos != null && Number(duracionMinutos) > 0) {
+    duracionMs = Math.round(Number(duracionMinutos)) * 60000;
+  } else if (fechaHoraFin) {
+    const finReferencia = new Date(fechaHoraFin);
+    if (!Number.isNaN(finReferencia.getTime())) {
+      duracionMs = finReferencia.getTime() - fechaBase.getTime();
+    }
+  }
+  if (duracionMs != null && duracionMs <= 0) {
+    return { ok: false, status: 400, error: 'La hora de fin debe ser posterior al inicio' };
+  }
 
   const jugadoresRes = await obtenerJugadoresDivision(clubId, divisionId);
   const jugadorIds = jugadoresRes.data.map((j) => j.usuario_id);
@@ -1154,7 +1289,7 @@ export const listarEntrenamientosClub = async (clubId, { divisionId = null } = {
       { model: ClubDivisiones, as: 'division', attributes: ['id', 'nombre', 'genero', 'club_id'] },
       { model: ClubEventoConfirmaciones, as: 'confirmaciones', attributes: ['respuesta'] },
     ],
-    order: [['fecha_hora', 'DESC']],
+    order: [['fecha_hora', 'ASC']],
   });
 
   return { ok: true, data: eventos.map((e) => serializarEvento(e)) };
@@ -1406,6 +1541,15 @@ export const responderConfirmacionEvento = async ({
     }
   }
 
+  if (huboCambio) {
+    scheduleRecordUserActivity({
+      usuarioId: userId,
+      tipo: 'RSVP',
+      entidadTipo: 'EVENTO',
+      entidadId: eventoId,
+    });
+  }
+
   return {
     ok: true,
     data: {
@@ -1493,11 +1637,57 @@ export const listarAtletasDivision = async (clubId, divisionId) => {
 
   const atletas = await ClubDivisionAtletas.findAll({
     where: { club_division_id: divisionId },
-    include: [{ model: User, as: 'usuario', attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'] }],
+    include: [{
+      model: User,
+      as: 'usuario',
+      attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url', 'fecha_nacimiento'],
+    }],
     order: [['dorsal', 'ASC'], ['id', 'ASC']],
   });
 
   return { ok: true, data: atletas.map(serializarAtleta) };
+};
+
+export const listarAtletasClub = async (clubId) => {
+  const club = await Clubs.findByPk(clubId, { attributes: ['id'] });
+  if (!club) return { ok: false, status: 404, error: 'Club no encontrado' };
+
+  const divisiones = await ClubDivisiones.findAll({
+    where: { club_id: clubId },
+    attributes: ['id', 'nombre'],
+    include: [{
+      model: ClubDivisionAtletas,
+      as: 'atletas',
+      include: [{
+        model: User,
+        as: 'usuario',
+        attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
+      }],
+    }],
+    order: [['nombre', 'ASC'], ['id', 'ASC']],
+  });
+
+  const data = [];
+  for (const division of divisiones) {
+    const atletas = [...(division.atletas ?? [])].sort((a, b) => {
+      const dorsalA = a.dorsal ?? 9999;
+      const dorsalB = b.dorsal ?? 9999;
+      if (dorsalA !== dorsalB) return dorsalA - dorsalB;
+      return a.id - b.id;
+    });
+
+    for (const atleta of atletas) {
+      data.push({
+        ...serializarAtleta(atleta),
+        division: {
+          id: division.id,
+          nombre: division.nombre,
+        },
+      });
+    }
+  }
+
+  return { ok: true, data };
 };
 
 export const usuarioEstaEnNominaDivision = async (clubId, divisionId, usuarioId) => {
@@ -1684,6 +1874,22 @@ export const obtenerDetalleDivision = async (clubId, divisionId, viewerId) => {
   };
 };
 
+const validarElegibilidadAtletaDivision = async (usuarioId, divisionId) => {
+  const usuario = await User.findByPk(usuarioId, {
+    attributes: ['id', 'genero', 'fecha_nacimiento'],
+  });
+  if (!usuario) return { ok: false, status: 404, error: 'Usuario no encontrado' };
+
+  const division = await ClubDivisiones.findByPk(divisionId, {
+    attributes: ['id', 'nombre', 'genero', 'edad_minima', 'edad_maxima'],
+  });
+  if (!division) return { ok: false, status: 404, error: 'División no encontrada' };
+
+  const check = validarUsuarioParaDivision(usuario, division);
+  if (!check.ok) return { ok: false, status: 409, error: check.error };
+  return { ok: true };
+};
+
 export const agregarAtletaDivision = async ({
   clubId,
   divisionId,
@@ -1702,7 +1908,14 @@ export const agregarAtletaDivision = async ({
   const targetId = parseId(usuarioId);
   if (!targetId) return { ok: false, status: 400, error: 'usuario_id inválido' };
 
-  const usuario = await User.findByPk(targetId, { attributes: ['id'] });
+  const elegibilidad = await validarElegibilidadAtletaDivision(targetId, divisionId);
+  if (!elegibilidad.ok) {
+    return { ok: false, status: elegibilidad.status ?? 409, error: elegibilidad.error };
+  }
+
+  const usuario = await User.findByPk(targetId, {
+    attributes: ['id', 'genero', 'fecha_nacimiento'],
+  });
   if (!usuario) return { ok: false, status: 404, error: 'Usuario no encontrado' };
 
   const estadoNorm = String(estado).toUpperCase();
@@ -1717,12 +1930,14 @@ export const agregarAtletaDivision = async ({
     return { ok: false, status: 409, error: 'El jugador ya está en la nómina de esta división' };
   }
 
+  const datosIniciales = datosPersonalesInicialesDesdeUsuario(usuario);
   const atleta = await ClubDivisionAtletas.create({
     club_division_id: divisionId,
     usuario_id: targetId,
     dorsal: dorsal != null ? parseInt(dorsal, 10) : null,
     posicion: posicion?.trim() || null,
     estado: estadoNorm,
+    datos_personales: datosIniciales,
   });
 
   const completo = await ClubDivisionAtletas.findByPk(atleta.id, {
@@ -1837,9 +2052,17 @@ export const invitarAtletaDivision = async ({
   }
 
   const usuarioInvitado = await User.findByPk(targetId, {
-    attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url'],
+    attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url', 'genero', 'fecha_nacimiento'],
   });
   if (!usuarioInvitado) return { ok: false, status: 404, error: 'Usuario no encontrado' };
+
+  const divisionElegibilidad = await ClubDivisiones.findByPk(divisionId, {
+    attributes: ['id', 'nombre', 'genero', 'edad_minima', 'edad_maxima'],
+  });
+  const checkInvitado = validarUsuarioParaDivision(usuarioInvitado, divisionElegibilidad);
+  if (!checkInvitado.ok) {
+    return { ok: false, status: 409, error: checkInvitado.error };
+  }
 
   const enNomina = await usuarioEstaEnNominaDivision(clubId, divisionId, targetId);
   if (enNomina) {
@@ -2009,6 +2232,13 @@ export const responderInvitacionDivision = async ({
   const club = await Clubs.findByPk(clubId, { attributes: ['id', 'nombre'] });
   const division = invitacion.division;
 
+  if (respuestaNorm === 'ACEPTADA') {
+    const elegibilidad = await validarElegibilidadAtletaDivision(userId, divisionId);
+    if (!elegibilidad.ok) {
+      return { ok: false, status: elegibilidad.status ?? 409, error: elegibilidad.error };
+    }
+  }
+
   const result = await sequelize.transaction(async (transaction) => {
     await invitacion.update({ estado: respuestaNorm, updated_at: new Date() }, { transaction });
 
@@ -2018,12 +2248,17 @@ export const responderInvitacionDivision = async ({
         transaction,
       });
       if (!existente) {
+        const usuarioInvitado = await User.findByPk(userId, {
+          attributes: ['id', 'genero', 'fecha_nacimiento'],
+          transaction,
+        });
         await ClubDivisionAtletas.create({
           club_division_id: divisionId,
           usuario_id: userId,
           dorsal: null,
           posicion: null,
           estado: 'ACTIVO',
+          datos_personales: datosPersonalesInicialesDesdeUsuario(usuarioInvitado),
         }, { transaction });
       }
 
@@ -2093,11 +2328,13 @@ const listarAtletasConEquiposDivision = async (clubId, divisionId) => {
   return {
     ok: true,
     data: atletasRes.data.map((atleta) => ({
+      id: atleta.id,
       usuario_id: atleta.usuario_id,
       usuario: atleta.usuario,
       dorsal: atleta.dorsal,
       posicion: atleta.posicion,
       estado: atleta.estado,
+      edad: calcularEdadDesdeFecha(atleta.usuario?.fecha_nacimiento),
       equipo_actual: equipoPorUsuario.get(atleta.usuario_id) ?? null,
     })),
   };
@@ -2118,8 +2355,9 @@ export const obtenerPlantillaEquipoDivision = async ({
   });
   if (!team) return { ok: false, status: 404, error: 'Equipo no encontrado en la división' };
 
-  const puedeGestionar = await puedeGestionarDivision(clubId, divisionId, viewerId);
-  const esCapitan = team.capitan_id === viewerId;
+  const viewerUid = Number(viewerId);
+  const puedeGestionar = await puedeGestionarDivision(clubId, divisionId, viewerUid);
+  const esCapitan = Number(team.capitan_id) === viewerUid;
   if (!puedeGestionar && !esCapitan) {
     return { ok: false, status: 403, error: 'Sin permiso para gestionar la plantilla' };
   }
@@ -2164,8 +2402,9 @@ export const asignarPlantillaEquipoDivision = async ({
   });
   if (!team) return { ok: false, status: 404, error: 'Equipo no encontrado en la división' };
 
-  const puedeGestionar = await puedeGestionarDivision(clubId, divisionId, userId);
-  const esCapitan = team.capitan_id === userId;
+  const viewerUid = Number(userId);
+  const puedeGestionar = await puedeGestionarDivision(clubId, divisionId, viewerUid);
+  const esCapitan = Number(team.capitan_id) === viewerUid;
   if (!puedeGestionar && !esCapitan) {
     return { ok: false, status: 403, error: 'Sin permiso para gestionar la plantilla' };
   }
@@ -2175,6 +2414,7 @@ export const asignarPlantillaEquipoDivision = async ({
       .map((id) => parseId(id))
       .filter(Boolean),
   )];
+  const idSet = new Set(ids.map((id) => Number(id)));
 
   for (const uid of ids) {
     const enNomina = await usuarioEstaEnNominaDivision(clubId, divisionId, uid);
@@ -2230,14 +2470,23 @@ export const asignarPlantillaEquipoDivision = async ({
     });
 
     for (const miembro of actuales) {
-      if (miembro.user_id === team.capitan_id) continue;
-      if (!ids.includes(miembro.user_id)) {
+      if (Number(miembro.user_id) === Number(team.capitan_id)) continue;
+      if (!idSet.has(Number(miembro.user_id))) {
         await miembro.destroy({ transaction });
       }
     }
   });
 
-  return { ok: true };
+  const plantillaActualizada = await obtenerPlantillaEquipoDivision({
+    clubId,
+    divisionId,
+    teamId,
+    viewerId: viewerUid,
+  });
+
+  return plantillaActualizada.ok
+    ? { ok: true, data: plantillaActualizada.data }
+    : { ok: true };
 };
 
 export const crearEquipoCompetenciaDivision = async ({
@@ -2317,7 +2566,7 @@ export const crearEquipoCompetenciaDivision = async ({
   return { ok: true, data: serializarEquipoClub(completo) };
 };
 
-export const eliminarDivisionClub = async (clubId, divisionId, userId) => {
+export const eliminarDivisionClub = async (clubId, divisionId, userId, { cascada = false } = {}) => {
   const club = await Clubs.findByPk(clubId, { attributes: ['id', 'admin_id'] });
   if (!club || !usuarioEsAdminClub(club, userId)) {
     return { ok: false, status: 403, error: 'Solo el administrador puede eliminar divisiones' };
@@ -2330,16 +2579,82 @@ export const eliminarDivisionClub = async (clubId, divisionId, userId) => {
     return { ok: false, status: 400, error: 'No se puede eliminar Plantel Principal' };
   }
 
-  const equiposCount = await Team.count({ where: { club_id: clubId, club_division_id: divisionId } });
+  const [
+    equiposCount,
+    atletasCount,
+    eventosCount,
+    invitacionesCount,
+    partidosCount,
+    uniformesCount,
+  ] = await Promise.all([
+    Team.count({ where: { club_id: clubId, club_division_id: divisionId } }),
+    ClubDivisionAtletas.count({ where: { club_division_id: divisionId } }),
+    ClubEventos.count({ where: { club_division_id: divisionId } }),
+    ClubDivisionInvitaciones.count({ where: { club_division_id: divisionId } }),
+    Partidos.count({ where: { club_division_id: divisionId } }),
+    ClubUniformeAsignaciones.count({ where: { club_division_id: divisionId } }),
+  ]);
+
+  const bloqueos = [];
   if (equiposCount > 0) {
+    bloqueos.push(`${equiposCount} equipo(s) de competencia`);
+  }
+  if (partidosCount > 0) {
+    bloqueos.push(`${partidosCount} partido(s) asociado(s)`);
+  }
+  if (eventosCount > 0) {
+    bloqueos.push(`${eventosCount} entrenamiento(s) o evento(s) registrado(s)`);
+  }
+
+  if (bloqueos.length) {
     return {
       ok: false,
       status: 409,
-      error: 'Elimina o reasigna los equipos de competencia antes de borrar la división',
+      error: `No puedes eliminar esta división porque tiene ${bloqueos.join(', ')}. Muévelos o elimínalos primero.`,
     };
   }
 
-  await division.destroy();
+  const cascadaPendiente = [];
+  if (atletasCount > 0) cascadaPendiente.push(`${atletasCount} atleta(s)`);
+  if (invitacionesCount > 0) cascadaPendiente.push(`${invitacionesCount} invitación(es) pendiente(s)`);
+  if (uniformesCount > 0) cascadaPendiente.push(`${uniformesCount} asignación(es) de uniforme`);
+
+  if (cascadaPendiente.length && !cascada) {
+    return {
+      ok: false,
+      status: 409,
+      requiere_cascada: true,
+      error: `No puedes eliminar esta división porque tiene ${cascadaPendiente.join(' y ')} asociados. Muévelos primero a otra división o confirma la eliminación en cascada.`,
+    };
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    if (cascada) {
+      await ClubDivisionInvitaciones.destroy({
+        where: { club_division_id: divisionId },
+        transaction,
+      });
+      await ClubDivisionAtletas.destroy({
+        where: { club_division_id: divisionId },
+        transaction,
+      });
+      await ClubUniformeAsignaciones.destroy({
+        where: { club_division_id: divisionId },
+        transaction,
+      });
+      await ClubAnuncios.update(
+        { club_division_id: null },
+        { where: { club_id: clubId, club_division_id: divisionId }, transaction },
+      );
+      await ClubSolicitudes.update(
+        { club_division_id: null },
+        { where: { club_id: clubId, club_division_id: divisionId }, transaction },
+      );
+    }
+
+    await division.destroy({ transaction });
+  });
+
   return { ok: true };
 };
 
@@ -2366,6 +2681,8 @@ export const registrarAsistenciaEvento = async ({
   const jugadoresRes = await obtenerJugadoresDivision(clubId, evento.club_division_id);
   const idsValidos = new Set(jugadoresRes.data.map((j) => j.usuario_id));
 
+  const atletasRegistrados = new Set();
+
   await sequelize.transaction(async (transaction) => {
     for (const reg of registros) {
       const usuarioId = parseId(reg.usuario_id);
@@ -2387,8 +2704,18 @@ export const registrarAsistenciaEvento = async ({
       if (row.estado !== estado) {
         await row.update({ estado, registrado_por: userId }, { transaction });
       }
+      atletasRegistrados.add(usuarioId);
     }
   });
+
+  for (const atletaId of atletasRegistrados) {
+    scheduleRecordUserActivity({
+      usuarioId: atletaId,
+      tipo: 'ASISTENCIA_MARCADA',
+      entidadTipo: 'EVENTO',
+      entidadId: eventoId,
+    });
+  }
 
   const asistencias = await ClubEventoAsistencias.findAll({
     where: { evento_id: eventoId },
@@ -2404,6 +2731,7 @@ export const actualizarEventoEntrenamiento = async ({
   userId,
   fechaHora,
   fechaHoraFin,
+  duracionMinutos = null,
   lugar,
   descripcion,
 }) => {
@@ -2422,14 +2750,29 @@ export const actualizarEventoEntrenamiento = async ({
   }
 
   const patch = {};
+  let inicioPatch = null;
   if (fechaHora != null) {
-    const inicio = new Date(fechaHora);
-    if (Number.isNaN(inicio.getTime())) {
+    inicioPatch = new Date(fechaHora);
+    if (Number.isNaN(inicioPatch.getTime())) {
       return { ok: false, status: 400, error: 'fecha_hora inválida' };
     }
-    patch.fecha_hora = inicio;
+    patch.fecha_hora = inicioPatch;
   }
-  if (fechaHoraFin != null) {
+
+  const inicioRef = inicioPatch ?? new Date(evento.fecha_hora);
+  let duracionMs = null;
+  if (duracionMinutos != null && Number(duracionMinutos) > 0) {
+    duracionMs = Math.round(Number(duracionMinutos)) * 60000;
+  } else if (fechaHoraFin != null) {
+    const finRef = new Date(fechaHoraFin);
+    if (!Number.isNaN(finRef.getTime())) {
+      duracionMs = finRef.getTime() - inicioRef.getTime();
+    }
+  }
+
+  if (duracionMs != null && duracionMs > 0) {
+    patch.fecha_hora_fin = new Date(inicioRef.getTime() + duracionMs);
+  } else if (fechaHoraFin != null) {
     const fin = new Date(fechaHoraFin);
     if (Number.isNaN(fin.getTime())) {
       return { ok: false, status: 400, error: 'fecha_hora_fin inválida' };
@@ -3342,6 +3685,586 @@ export const responderMembresiaSolicitud = async ({
             estado: membresia.estado,
           }
         : null,
+    },
+  };
+};
+
+const DATOS_PERSONALES_CAMPOS = [
+  'tipo_documento',
+  'numero_documento',
+  'telefono',
+  'email',
+  'fecha_nacimiento',
+  'genero',
+  'tipo_sangre',
+  'contacto_emergencia_nombre',
+  'contacto_emergencia_telefono',
+  'contacto_emergencia_parentesco',
+  'direccion',
+  'observaciones',
+];
+
+const normalizarDatosPersonales = (raw) => {
+  const base = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  DATOS_PERSONALES_CAMPOS.forEach((key) => {
+    const val = base[key];
+    out[key] = val != null ? String(val).trim() : '';
+  });
+  return out;
+};
+
+const enriquecerDatosPersonalesDesdeUsuario = (datosPersonales, usuario) => {
+  const out = { ...datosPersonales };
+  if (!out.fecha_nacimiento && usuario?.fecha_nacimiento) {
+    out.fecha_nacimiento = String(usuario.fecha_nacimiento).slice(0, 10);
+  }
+  if (!out.genero && usuario?.genero) {
+    out.genero = String(usuario.genero).trim().toUpperCase();
+  }
+  return out;
+};
+
+const datosPersonalesInicialesDesdeUsuario = (usuario) => {
+  const out = {};
+  if (usuario?.fecha_nacimiento) {
+    out.fecha_nacimiento = String(usuario.fecha_nacimiento).slice(0, 10);
+  }
+  if (usuario?.genero) {
+    out.genero = String(usuario.genero).trim().toUpperCase();
+  }
+  return out;
+};
+
+export const obtenerEquipoAtletaEnClub = async (clubId, divisionId, usuarioId) => {
+  const miembro = await TeamMiembros.findOne({
+    where: {
+      user_id: usuarioId,
+      estado_invitacion: 'ACEPTADO',
+    },
+    include: [{
+      model: Team,
+      as: 'equipo',
+      where: {
+        club_id: clubId,
+        club_division_id: divisionId,
+      },
+      attributes: ['id', 'name', 'logo_url'],
+      required: true,
+    }],
+    order: [['fecha_union', 'ASC'], ['id', 'ASC']],
+  });
+
+  if (!miembro?.equipo) return null;
+
+  return {
+    id: miembro.equipo.id,
+    name: miembro.equipo.name,
+    logo_url: miembro.equipo.logo_url ?? null,
+    posicion: miembro.position?.trim() || null,
+  };
+};
+
+export const calcularAsistenciaAtleta = async (divisionId, usuarioId) => {
+  const ahora = new Date();
+  const eventos = await ClubEventos.findAll({
+    where: {
+      club_division_id: divisionId,
+      tipo: 'ENTRENAMIENTO',
+      [Op.or]: [
+        { completado_at: { [Op.ne]: null } },
+        { fecha_hora: { [Op.lt]: ahora } },
+      ],
+    },
+    attributes: ['id', 'fecha_hora'],
+    order: [['fecha_hora', 'DESC']],
+  });
+
+  if (!eventos.length) {
+    return { racha: 0, asistencia_pct: 0, sin_datos: true };
+  }
+
+  const eventoIds = eventos.map((e) => e.id);
+  const asistencias = await ClubEventoAsistencias.findAll({
+    where: {
+      evento_id: { [Op.in]: eventoIds },
+      usuario_id: usuarioId,
+    },
+    attributes: ['evento_id', 'estado'],
+  });
+  const asistenciaPorEvento = new Map(asistencias.map((a) => [a.evento_id, a.estado]));
+
+  let racha = 0;
+  for (const evento of eventos) {
+    if (asistenciaPorEvento.get(evento.id) === 'PRESENTE') {
+      racha += 1;
+    } else {
+      break;
+    }
+  }
+
+  const eventosAsc = [...eventos].reverse();
+  let presentes = 0;
+  eventosAsc.forEach((evento) => {
+    if (asistenciaPorEvento.get(evento.id) === 'PRESENTE') presentes += 1;
+  });
+
+  return {
+    racha,
+    asistencia_pct: Math.round((presentes / eventosAsc.length) * 100),
+    sin_datos: false,
+    total_eventos: eventosAsc.length,
+    total_presentes: presentes,
+  };
+};
+
+const resolverEstadoAsistenciaEvento = (evento, estadoRegistrado, ahora = new Date()) => {
+  const esFuturo = new Date(evento.fecha_hora) > ahora && !evento.completado_at;
+  if (esFuturo && !estadoRegistrado) return 'FUTURO';
+  if (!estadoRegistrado) return 'SIN_REGISTRO';
+  return estadoRegistrado;
+};
+
+const calcularRachaMaximaHistorica = (eventosAsc, asistenciaPorEvento) => {
+  let maxRacha = 0;
+  let rachaActual = 0;
+  eventosAsc.forEach((evento) => {
+    if (asistenciaPorEvento.get(evento.id) === 'PRESENTE') {
+      rachaActual += 1;
+      if (rachaActual > maxRacha) maxRacha = rachaActual;
+    } else {
+      rachaActual = 0;
+    }
+  });
+  return maxRacha;
+};
+
+export const obtenerDetalleAsistenciaAtleta = async (divisionId, usuarioId) => {
+  const ahora = new Date();
+  const tresMesesAtras = new Date(ahora);
+  tresMesesAtras.setMonth(tresMesesAtras.getMonth() - 3);
+  tresMesesAtras.setHours(0, 0, 0, 0);
+
+  const todosEventos = await ClubEventos.findAll({
+    where: {
+      club_division_id: divisionId,
+      tipo: 'ENTRENAMIENTO',
+    },
+    attributes: ['id', 'fecha_hora', 'titulo', 'completado_at', 'club_division_id'],
+    include: [{
+      model: ClubDivisiones,
+      as: 'division',
+      attributes: ['id', 'nombre'],
+      required: true,
+    }],
+    order: [['fecha_hora', 'ASC']],
+  });
+
+  if (!todosEventos.length) {
+    return {
+      resumen: {
+        asistencia_pct: 0,
+        asistidos: 0,
+        total_programados: 0,
+        racha_maxima: 0,
+        sin_datos: true,
+      },
+      mapa_calor: [],
+      historial: [],
+    };
+  }
+
+  const eventoIds = todosEventos.map((e) => e.id);
+  const asistencias = await ClubEventoAsistencias.findAll({
+    where: {
+      evento_id: { [Op.in]: eventoIds },
+      usuario_id: usuarioId,
+    },
+    attributes: ['evento_id', 'estado'],
+  });
+  const asistenciaPorEvento = new Map(asistencias.map((a) => [a.evento_id, a.estado]));
+
+  const eventosPasados = todosEventos.filter(
+    (evento) => evento.completado_at || new Date(evento.fecha_hora) <= ahora,
+  );
+  const presentes = eventosPasados.filter(
+    (evento) => asistenciaPorEvento.get(evento.id) === 'PRESENTE',
+  ).length;
+  const asistenciaPct = eventosPasados.length
+    ? Math.round((presentes / eventosPasados.length) * 100)
+    : 0;
+  const rachaMaxima = calcularRachaMaximaHistorica(todosEventos, asistenciaPorEvento);
+
+  const serializarEventoAsistencia = (evento) => {
+    const estadoRegistrado = asistenciaPorEvento.get(evento.id) ?? null;
+    return {
+      evento_id: evento.id,
+      fecha_hora: evento.fecha_hora,
+      titulo: evento.titulo,
+      division: evento.division?.nombre ?? null,
+      estado: resolverEstadoAsistenciaEvento(evento, estadoRegistrado, ahora),
+    };
+  };
+
+  const mapaCalor = todosEventos
+    .filter((evento) => new Date(evento.fecha_hora) >= tresMesesAtras)
+    .map(serializarEventoAsistencia);
+
+  const historial = [...mapaCalor].sort(
+    (a, b) => new Date(b.fecha_hora) - new Date(a.fecha_hora),
+  );
+
+  return {
+    resumen: {
+      asistencia_pct: asistenciaPct,
+      asistidos: presentes,
+      total_programados: todosEventos.length,
+      racha_maxima: rachaMaxima,
+      sin_datos: false,
+    },
+    mapa_calor: mapaCalor,
+    historial,
+  };
+};
+
+export const calcularEstadoPagosAtleta = async (clubId, usuarioId) => {
+  const conceptos = await ClubConceptosPago.findAll({
+    where: { club_id: clubId, activo: true },
+    attributes: ['id'],
+  });
+  const conceptoIds = conceptos.map((c) => c.id);
+  if (!conceptoIds.length) {
+    return { estado: 'AL_DIA', label: 'Al día', pendientes: 0, vencidos: 0 };
+  }
+
+  const pagos = await ClubPagosMiembro.findAll({
+    where: {
+      usuario_id: usuarioId,
+      concepto_pago_id: { [Op.in]: conceptoIds },
+      estado: { [Op.in]: ['PENDIENTE', 'VENCIDO'] },
+    },
+    attributes: ['estado'],
+  });
+
+  const vencidos = pagos.filter((p) => p.estado === 'VENCIDO').length;
+  const pendientes = pagos.filter((p) => p.estado === 'PENDIENTE').length;
+
+  if (vencidos > 0) {
+    return { estado: 'VENCIDO', label: 'Vencido', pendientes, vencidos };
+  }
+  if (pendientes > 0) {
+    return { estado: 'PENDIENTE', label: 'Pendiente', pendientes, vencidos };
+  }
+  return { estado: 'AL_DIA', label: 'Al día', pendientes: 0, vencidos: 0 };
+};
+
+export const calcularRendimientoMetricasAtleta = async (divisionId, usuarioId) => {
+  const evaluaciones = await ClubEventoEvaluacion.findAll({
+    where: { usuario_id: usuarioId },
+    include: [{
+      model: ClubEventos,
+      as: 'evento',
+      where: { club_division_id: divisionId, tipo: 'ENTRENAMIENTO' },
+      attributes: ['id', 'fecha_hora', 'titulo'],
+      required: true,
+    }, {
+      model: ClubEventoEvaluacionDetalle,
+      as: 'detalles',
+      attributes: ['metrica_id', 'calificacion'],
+      include: [{
+        model: ClubMetricaEvaluacion,
+        as: 'metrica',
+        attributes: ['id', 'nombre_metrica'],
+      }],
+    }],
+    order: [[{ model: ClubEventos, as: 'evento' }, 'fecha_hora', 'ASC']],
+  });
+
+  const metricMap = new Map();
+
+  evaluaciones.forEach((evalRow) => {
+    const evento = evalRow.evento;
+    (evalRow.detalles ?? []).forEach((det) => {
+      if (det.calificacion == null) return;
+      const metricaId = det.metrica_id;
+      const nombre = det.metrica?.nombre_metrica ?? `Métrica ${metricaId}`;
+      if (!metricMap.has(metricaId)) {
+        metricMap.set(metricaId, {
+          metrica_id: metricaId,
+          nombre,
+          sum: 0,
+          count: 0,
+          puntos: [],
+        });
+      }
+      const entry = metricMap.get(metricaId);
+      const valor = Number(det.calificacion);
+      entry.sum += valor;
+      entry.count += 1;
+      entry.puntos.push({
+        evento_id: evento.id,
+        fecha: evento.fecha_hora,
+        titulo: evento.titulo ?? null,
+        valor,
+      });
+    });
+  });
+
+  const ranking = [...metricMap.values()]
+    .map((m) => ({
+      metrica_id: m.metrica_id,
+      nombre: m.nombre,
+      promedio: Math.round(m.sum / m.count),
+      evaluaciones: m.count,
+      puntos: m.puntos,
+    }))
+    .filter((m) => m.evaluaciones > 0)
+    .sort((a, b) => b.promedio - a.promedio);
+
+  return {
+    ranking,
+    top_metrica: ranking[0] ?? null,
+    series: ranking.map(({ metrica_id, nombre, puntos }) => ({
+      metrica_id,
+      nombre,
+      puntos,
+    })),
+  };
+};
+
+export const listarFogueosAtleta = async (clubId, divisionId, usuarioId) => {
+  const eventosFogueo = await ClubEventos.findAll({
+    where: {
+      club_division_id: divisionId,
+      tipo: 'ENTRENAMIENTO',
+      enfoque_sesion: ENFOQUE_FOGUEO,
+      partido_id: { [Op.ne]: null },
+    },
+    attributes: ['id', 'titulo', 'fecha_hora', 'partido_id'],
+    order: [['fecha_hora', 'DESC']],
+  });
+
+  if (!eventosFogueo.length) {
+    return { partidos: [], totales: { partidos: 0, puntos_total: 0, puntos_promedio: 0 } };
+  }
+
+  const partidoIds = eventosFogueo.map((e) => e.partido_id).filter(Boolean);
+  const nominas = await PartidoNominas.findAll({
+    where: {
+      partido_id: { [Op.in]: partidoIds },
+      user_id: usuarioId,
+    },
+    attributes: ['partido_id', 'es_local', 'dorsal'],
+  });
+  const partidosConNomina = new Set(nominas.map((n) => n.partido_id));
+
+  const partidos = await Partidos.findAll({
+    where: {
+      id: { [Op.in]: partidoIds },
+      state: 'FINALIZADO',
+    },
+    attributes: [
+      'id', 'name', 'datetime', 'state',
+      'score_local_final', 'score_visitante_final',
+    ],
+  });
+  const partidoMap = new Map(partidos.map((p) => [p.id, p]));
+
+  const statsRows = await PartidoJugadorStats.findAll({
+    where: {
+      partido_id: { [Op.in]: partidoIds },
+      user_id: usuarioId,
+    },
+    attributes: [
+      'partido_id', 'goles', 'asistencias', 'amarillas', 'rojas', 'puntos_personales',
+    ],
+  });
+  const statsMap = new Map(statsRows.map((s) => [s.partido_id, s]));
+
+  const items = [];
+  let puntosTotal = 0;
+
+  eventosFogueo.forEach((evento) => {
+    const partidoId = evento.partido_id;
+    if (!partidosConNomina.has(partidoId)) return;
+    const partido = partidoMap.get(partidoId);
+    if (!partido) return;
+
+    const stats = statsMap.get(partidoId);
+    const nomina = nominas.find((n) => n.partido_id === partidoId);
+    const puntos = stats?.puntos_personales ?? 0;
+    puntosTotal += puntos;
+
+    items.push({
+      evento_id: evento.id,
+      partido_id: partidoId,
+      titulo: evento.titulo ?? partido.name ?? 'Fogueo',
+      fecha_hora: evento.fecha_hora ?? partido.datetime,
+      score_local_final: partido.score_local_final,
+      score_visitante_final: partido.score_visitante_final,
+      es_local: nomina?.es_local ?? null,
+      dorsal: nomina?.dorsal ?? null,
+      goles: stats?.goles ?? 0,
+      asistencias: stats?.asistencias ?? 0,
+      amarillas: stats?.amarillas ?? 0,
+      rojas: stats?.rojas ?? 0,
+      puntos_personales: puntos,
+      es_practica_interna: true,
+    });
+  });
+
+  const count = items.length;
+  return {
+    partidos: items,
+    totales: {
+      partidos: count,
+      puntos_total: puntosTotal,
+      puntos_promedio: count ? Math.round(puntosTotal / count) : 0,
+    },
+  };
+};
+
+export const obtenerPerfilAtletaClub = async (clubId, atletaId, viewerId) => {
+  const id = parseId(atletaId);
+  if (!id) return { ok: false, status: 400, error: 'atleta_id inválido' };
+
+  const atleta = await ClubDivisionAtletas.findOne({
+    where: { id },
+    include: [
+      {
+        model: ClubDivisiones,
+        as: 'division',
+        where: { club_id: clubId },
+        attributes: ['id', 'nombre', 'genero', 'club_id'],
+        required: true,
+      },
+      {
+        model: User,
+        as: 'usuario',
+        attributes: ['id', 'nick', 'name', 'photo', 'foto_portada_url', 'genero', 'fecha_nacimiento'],
+      },
+    ],
+  });
+
+  if (!atleta) return { ok: false, status: 404, error: 'Atleta no encontrado' };
+
+  const divisionId = atleta.club_division_id;
+  const usuarioId = atleta.usuario_id;
+  const esPropio = usuarioId === viewerId;
+  const puedeGestionar = await puedeGestionarDivision(clubId, divisionId, viewerId);
+  const enNomina = await usuarioEstaEnNominaDivision(clubId, divisionId, viewerId);
+
+  if (!esPropio && !puedeGestionar && !enNomina) {
+    return { ok: false, status: 403, error: 'Sin permiso para ver este perfil' };
+  }
+
+  const { listarPagosUsuarioEnClub } = await import('./clubPagosUniformesService.js');
+
+  const [asistencia, asistenciaDetalle, pagosResumen, pagosLista, rendimiento, fogueos, equipo, clubRow] = await Promise.all([
+    calcularAsistenciaAtleta(divisionId, usuarioId),
+    obtenerDetalleAsistenciaAtleta(divisionId, usuarioId),
+    calcularEstadoPagosAtleta(clubId, usuarioId),
+    listarPagosUsuarioEnClub(clubId, usuarioId),
+    calcularRendimientoMetricasAtleta(divisionId, usuarioId),
+    listarFogueosAtleta(clubId, divisionId, usuarioId),
+    obtenerEquipoAtletaEnClub(clubId, divisionId, usuarioId),
+    Clubs.findByPk(clubId, { attributes: ['id', 'nombre'] }),
+  ]);
+
+  const pagos = {
+    ...pagosResumen,
+    items: pagosLista.ok ? pagosLista.data : [],
+  };
+
+  const datosPersonales = enriquecerDatosPersonalesDesdeUsuario(
+    normalizarDatosPersonales(atleta.datos_personales),
+    atleta.usuario,
+  );
+  const edad = calcularEdadDesdeFecha(datosPersonales.fecha_nacimiento);
+
+  return {
+    ok: true,
+    data: {
+      atleta: {
+        ...serializarAtleta(atleta),
+        division: {
+          id: atleta.division.id,
+          nombre: atleta.division.nombre,
+          genero: atleta.division.genero,
+        },
+        equipo,
+        edad,
+        genero: datosPersonales.genero || null,
+        datos_personales: datosPersonales,
+      },
+      general: {
+        racha: asistencia.racha,
+        asistencia_pct: asistencia.asistencia_pct,
+        asistencia_sin_datos: asistencia.sin_datos,
+        pagos: pagos,
+        top_metrica: rendimiento.top_metrica,
+      },
+      rendimiento: {
+        ranking: rendimiento.ranking,
+        series: rendimiento.series,
+      },
+      asistencia: asistenciaDetalle,
+      fogueos,
+      club: clubRow ? { id: clubRow.id, nombre: clubRow.nombre } : null,
+      permisos: {
+        es_propio: esPropio,
+        puede_gestionar: puedeGestionar,
+        puede_editar_datos: esPropio || puedeGestionar,
+      },
+    },
+  };
+};
+
+export const actualizarDatosPersonalesAtleta = async (clubId, atletaId, viewerId, payload) => {
+  const id = parseId(atletaId);
+  if (!id) return { ok: false, status: 400, error: 'atleta_id inválido' };
+
+  const atleta = await ClubDivisionAtletas.findOne({
+    where: { id },
+    include: [{
+      model: ClubDivisiones,
+      as: 'division',
+      where: { club_id: clubId },
+      attributes: ['id'],
+      required: true,
+    }],
+  });
+
+  if (!atleta) return { ok: false, status: 404, error: 'Atleta no encontrado' };
+
+  const esPropio = atleta.usuario_id === viewerId;
+  const puedeGestionar = await puedeGestionarDivision(clubId, atleta.club_division_id, viewerId);
+  if (!esPropio && !puedeGestionar) {
+    return { ok: false, status: 403, error: 'Sin permiso para editar datos personales' };
+  }
+
+  const actuales = normalizarDatosPersonales(atleta.datos_personales);
+  const incoming = payload?.datos_personales ?? payload ?? {};
+  const merged = { ...actuales };
+  DATOS_PERSONALES_CAMPOS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(incoming, key)) {
+      merged[key] = incoming[key] != null ? String(incoming[key]).trim() : '';
+    }
+  });
+
+  await atleta.update({ datos_personales: merged });
+
+  const usuario = await User.findByPk(atleta.usuario_id, {
+    attributes: ['id', 'genero', 'fecha_nacimiento'],
+  });
+  const datosEnriquecidos = enriquecerDatosPersonalesDesdeUsuario(merged, usuario);
+
+  return {
+    ok: true,
+    data: {
+      datos_personales: datosEnriquecidos,
+      edad: calcularEdadDesdeFecha(datosEnriquecidos.fecha_nacimiento),
+      genero: datosEnriquecidos.genero || null,
     },
   };
 };

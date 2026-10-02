@@ -69,7 +69,7 @@ const opcionesUpload = (resourceType) => {
   return base;
 };
 
-export const subirMediaPublicacion = async (file) => {
+export const subirMediaPublicacion = async (file, { trimStartSec, trimEndSec } = {}) => {
   if (!isCloudinaryConfigured()) {
     throw new Error(
       'Cloudinary no está configurado. Revisa CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY y CLOUDINARY_API_SECRET en .env'
@@ -85,7 +85,17 @@ export const subirMediaPublicacion = async (file) => {
   const mimetype = normalizarMimeType(file);
   const esVideo = mimetype.startsWith('video/');
   const resourceType = esVideo ? 'video' : 'image';
-  const opts = opcionesUpload(resourceType);
+  const opts = { ...opcionesUpload(resourceType) };
+  if (esVideo) {
+    const start = Number(trimStartSec);
+    const end = Number(trimEndSec);
+    if (Number.isFinite(start) && start >= 0) {
+      opts.start_offset = Math.round(start * 100) / 100;
+    }
+    if (Number.isFinite(end) && end > 0) {
+      opts.end_offset = Math.round(end * 100) / 100;
+    }
+  }
 
   const usarStream = esVideo || file.buffer.length > MAX_DATA_URI_BYTES;
   const result = usarStream
